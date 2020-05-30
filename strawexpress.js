@@ -145,120 +145,8 @@
 			}
 		}) ;
 		
-		/* ASSERT */ // Unimplemented for now
-		
-		var Assert = Type.define({
-			pkg:'test::Assert',
-			domain:Type.appdomain,
-			statics:{
-				fail:function fail(actual, expected, message, operator){},
-				equal:function equal(actual, expected, message/*Arr*/){},
-				notEqual:function notEqual(actual, expected, message/*Arr*/){},
-				deepEqual:function deepEqual(actual, expected, message/*Arr*/){},
-				notDeepEqual:function notDeepEqual(actual, expected, message/*Arr*/){},
-				strictEqual:function strictEqual(actual, expected, message/*Arr*/){},
-				notStrictEqual:function notStrictEqual(actual, expected, message/*Arr*/){},
-				throws:function throws(block, error/*Arr*/, message/*Arr*/){},
-				doesNotThrow:function doesNotThrow(block, error/*Arr*/, message/*Arr*/){},
-				ifError:function ifError(value){}
-			}
-		}) ;
-
-		/* OS */
-		var OS = Type.define({
-			pkg:'sys::OS',
-			domain:Type.appdomain,
-			statics:{
-				getOSVersion: function(){return OS.version},
-				getOSName: function(){return OS.type},
-				getOS: function(){return OS.type + ' ' + OS.version},
-				initialize:function(){
-					var workspaces = {
-						Windows: /WINDOWS(?= (NT ([\d.]+)))/i,
-						IOS : /iP[ao]d|iPhone/i,
-						MacOS : /Mac OS/,
-						ChromeOS : /CrOS/,
-						Android : /Android/,
-						Blackberry : /BlackBerry(?= ([\d.]+))/i ,
-						Linux : /Linux/
-					} ;
-					var OS = this ;
-					var instance = new OS() ;
-					var ua = navigator.userAgent ;
-					var y, ostype, osversion;
-					for(var w in workspaces){
-						y = workspaces[w] ;
-						if(y.test(ua)){
-							ua.replace(y, function($1, $2, $3){
-								if($2) osversion = $2 ;
-								ostype = $1 ;
-							});
-							break;
-						}
-					}
-					if(!ostype) ostype = "unknown" ;
-					if(!osversion) osversion = "unknown" ;
-					OS.type = ostype ;
-					OS.version = osversion ;
-					
-					OS[ostype] = true ;
-					
-					return this ;
-				}
-			}
-		}) ;
-		
-		var Browser = Type.define({
-			pkg:'sys::Browser',
-			domain:Type.appdomain,
-			statics:{
-				getBrowserName: function(){return Browser.type},
-				getBrowserVersion: function(){return Browser.version},
-				initialize:function(){
-					var namespaces = {
-						ie: /MSIE [\d.]+/i,
-						chr : /Chrome.[\d.]+/i,
-						ff : /Firefox.[\d.]+/i,
-						safmob: /[\d.]+ Mobile Safari/i,
-						saf : /[\d.]+ Safari/i,
-						op : /Opera/i
-					} ;
-					var Browser = this ;
-					var instance = new Browser() ;
-					var ua = navigator.userAgent ;
-					var arr, p, version, name, ns, x;
-					for(var s in namespaces){
-						x = namespaces[s] ;
-						if(arr = x.exec(ua)){
-							p = arr[0].replace('/', ' ') ;
-							version = p.replace(/[ A-Z]*/gi, '') ;
-							if(version === ''){
-								var vtest = /Version\/([\d.]+$)/ ;
-								if(vtest.test(ua)){
-									ua.replace(vtest, function($1, $2, $3){
-										version = $2 ;
-									});
-								}else version = "unknown" ;
-							}
-							name = p.replace(version, '').replace(' ', '') ;
-							ns = s ;
-							break ;
-						}
-					}
-					
-					Browser.ns = ns ;
-					Browser.type = name ;
-					Browser.version = version ;
-					Browser[ns] = Browser[name] = true ;
-					
-					var locals = OS.type + ' ' + Browser.type + ' ' + 'version_' + Browser.version.replace(/[.]/g, '-') + ' ' ;
-
-					document.documentElement.className = document.documentElement.className === '' ? locals : document.documentElement.className +' '+ locals ;
-				}
-			}
-		}) ;
 		/* NET */
-		var Request = Type.define(function(){
+		var Request = Type.define((function(){
 
 			var bank = [
 				function () {return new XMLHttpRequest()},
@@ -338,8 +226,8 @@
 								else throw new Error('RequestError : Path > "'+ url +'" failed, with status :'+ r.status) ;
 								return false ;
 							}
-							this.response = r.responseText ;
-							if(keepInLocalCache) cache[url] = this.response ;
+							th.response = r.responseText ;
+							if(keepInLocalCache) cache[url] = th.response ;
 							if(!!complete) complete(r, th) ;
 						}
 						if (r.readyState == 4) return ;
@@ -377,7 +265,8 @@
 					return undefined ;
 				}
 			} ;
-		}) ;
+
+		})()) ;
 
 		var AjaxRequest = Type.define({
 			pkg:'net',
@@ -396,17 +285,21 @@
 		
 		/* PROXIES */
 		var Proxy = Type.define(function(){
-			var ns = {}, global = window, returnValue = function(val, name){return val },
+			var ns = {}, __global__ = window, returnValue = function(val, name){return val },
 			toStringReg = /^\[|object ?|class ?|\]$/g ,
 			DOMClass = function (obj) {
+			
 				if(!!obj.constructor && !!obj.constructor.prototype) return obj.constructor ;
 				var tname = obj.tagName, kl, trans = { // Prototype.js' help here
 				  "OPTGROUP": "OptGroup", "TEXTAREA": "TextArea", "P": "Paragraph","FIELDSET": "FieldSet", "UL": "UList", "OL": "OList", "DL": "DList","DIR": "Directory", "H1": "Heading", "H2": "Heading", "H3": "Heading","H4": "Heading", "H5": "Heading", "H6": "Heading", "Q": "Quote","INS": "Mod", "DEL": "Mod", "A": "Anchor", "IMG": "Image", "CAPTION":"TableCaption", "COL": "TableCol", "COLGROUP": "TableCol", "THEAD":"TableSection", "TFOOT": "TableSection", "TBODY": "TableSection", "TR":"TableRow", "TH": "TableCell", "TD": "TableCell", "FRAMESET":"FrameSet", "IFRAME": "IFrame", 'DIV':'Div', 'DOCUMENT':'Document', 'HTML':'Html', 'WINDOW':'Window'
 				};
+				
 				if(!!!tname) {
-					if(obj === window)
+					if(obj === window){
 						tname = 'WINDOW' ;
-					else for(var s in window){
+					}else
+					
+					for(var s in window){
 						if(obj == window[s]) {
 							tname = s.toUpperCase() ;
 							break ;
@@ -416,10 +309,10 @@
 				
 				if(!! trans[tname]) kl = (tname == 'Window') ? trans[tname] : 'HTML' + trans[tname] + 'Element' ;
 				else kl = tname.replace(/^(.)(.+)$/, '$1'.toUpperCase() + '$2'.toLowerCase()) ;
-				if(!!! global[kl] ) { 
-					global[kl] = { } ;
-					global[kl].prototype = document.createElement(tname)['__proto__'] ;
-					global[kl].toString = function(){ return '[object '+kl+']' } ;
+				if(!!! __global__[kl] ) { 
+					__global__[kl] = { } ;
+					__global__[kl].prototype = document.createElement(tname)['__proto__'] ;
+					__global__[kl].toString = function(){ return '[object '+kl+']' } ;
 				}
 				return window[kl] ;
 			},
@@ -452,7 +345,7 @@
 				},
 				constructor:Proxy = function Proxy(target, override, toClass){
 					
-					var obj = target, cl = target.constructor, withoutnew = (this === global), tobecached = false, clvars, ret, func ;
+					var obj = target, cl = target.constructor, withoutnew = (this === __global__), tobecached = false, clvars, ret, func ;
 					var name_r = /function([^\(]+)/ ;
 					var getctorname = function(cl, name){ return (cl = cl.match(name_r))? cl[1].replace(' ', ''):'' } ;
 					tobecached = (withoutnew) ? true : false ;
@@ -510,9 +403,11 @@
 			} ;
 		}) ;
 		
+		
+		
 		/* EVENT & EVENTDISPATCHERS */
 		var IEvent = Type.define({
-			pkg:'event',
+			pkg:'event::IEvent',
 			domain:Type.appdomain,
 			constructor:IEvent = function IEvent(type, data){
 				this.timeStamp = + (new Date()) ;
@@ -529,9 +424,8 @@
 				}
 			}
 		}) ;
-
 		var DOMEventDispatcher = Type.define({
-			pkg:'event',
+			pkg:'event::DOMEventDispatcher',
 			domain:Type.appdomain,
 			constructor:DOMEventDispatcher = function DOMEventDispatcher(){
 				//
@@ -583,9 +477,8 @@
 				return undefined ;
 			}
 		}) ;
-		
 		var EventDispatcher = Type.define({
-			pkg:'event',
+			pkg:'event::EventDispatcher',
 			domain:Type.appdomain,
 			inherits:DOMEventDispatcher,
 			constructor:EventDispatcher = function EventDispatcher(tg){
@@ -641,7 +534,6 @@
 				return EventDispatcher.factory.destroy.call(this) ;
 			}
 		}) ;
-
 		var Global = Type.define({
 			pkg:'event::Global',
 			domain:Type.appdomain,
@@ -1110,7 +1002,6 @@
 				return Command.factory.destroy.call(this) ;
 			}
 		}) ;
-		
 		var CommandQueue = Type.define({
 			pkg:'command',
 			inherits:Command,
@@ -1221,7 +1112,6 @@
 				return CommandQueue.factory.destroy.call(this) ;
 			}
 		}) ;
-		
 		var WaitCommand = Type.define({
 			pkg:'command',
 			inherits:Command,
@@ -1281,7 +1171,6 @@
 				return WaitCommand.factory.destroy.call(this) ;
 			}
 		}) ;
-		
 		var AjaxCommand = Type.define({
 			pkg:'command',
 			inherits:Command,
@@ -1336,73 +1225,9 @@
 		}) ;
 	
 	
-		/* COLLECTIONS */
-		var Loop = Type.define({
-			pkg:'collection',
-			domain:Type.appdomain,
-			constructor:Loop = function Loop(){
-				var loopables = this.loopables =  [] ;
-				var playhead = this.playhead = -1 ;
-				
-				return this ;
-			},
-			add:function(c){
-				var loopables = this.loopables ;
-				var what = Object.prototype.toString ;
-				if(c[0] !== undefined && Type.is(c[0], CommandQueue)){
-					
-					var l = c.length ;
-					
-					for(var i = 0 ; i < l ; i++){
-						loopables[loopables.length] = c[i] ;
-					}
-				}else{
-					loopables[loopables.length] = c ;
-				}
-			},
-			launch:function(n, force){
-				var lp = this;
-				var loopables = lp.loopables, playhead = lp.playhead ;
-				
-				if(loopables[n] === undefined) throw 'error finding the right commandqueue';
-				if(n == lp.playhead && force !== true) return ;
-				
-				lp.index = n ;
-				var cq = loopables[n] ;
-				var ed = new EventDispatcher(cq) ;
-				
-				ed.bind('$', function rrr(e){
-					ed.unbind('$', rrr) ;
-					lp.playhead = n ;
-					cq = cq.reset() ;
-				}) ;
-				
-				return cq.execute() ;
-			},
-			prev:function(){
-				return this.launch(this.getPrevIndex()) ;
-			},
-			getPrevIndex:function(num) {// enter as -1, -2, -3
-				var lp = this;
-				var l = lp.loopables.length ;
-				var n = num !== undefined ? lp.playhead + num : lp.playhead - 1 ;
-				
-				if(n < 0) n = n + l ;
-				return n ;
-			},
-			next:function(){
-				return this.launch(this.getNextIndex()) ;
-			},
-			getNextIndex:function(num){
-				var lp = this;
-				var l = lp.loopables.length ;
-				var n = num !== undefined ? lp.playhead + num : lp.playhead + 1 ;
-				
-				if(n > l - 1) n = n - l ;
-				return n ;
-			}
-		}) ;
-		
+		// COLLECTIONS
+
+		// CYCLIC
 		var Cyclic = Type.define({
 			pkg:'collection',
 			domain:Type.appdomain,
@@ -1417,10 +1242,12 @@
 				if(!! arr && arr.length > 0){
 					this.add.apply(this, arr) ;
 				}
+				
 				return this ;
 			},
 			add:function(){
 			   var cy = this ;
+			   var l ;
 			   var commands = cy.commands ;
 			   var args = [].slice.call(arguments) ;
 			   var len = args.length ;
@@ -1613,6 +1440,7 @@
 				for(var s in cy)
 					delete cy[s] ;
 			}
+
 		}) ;
 
 		/* STEP */
@@ -2075,6 +1903,8 @@
 		
 
 		/* ADDRESS */
+		var weretested = false ;
+
 		var Address = Type.define({
 			pkg:'net',
 			domain:Type.appdomain,
@@ -2451,6 +2281,11 @@
 				baseAddress:new Address(location.href),
 				unique:undefined,
 				localereload:false,
+				isReady:function isReady(){
+					var address = AddressHierarchy.baseAddress ;
+					var base = address.base + address.path ;
+					return base == AddressHierarchy.parameters.base ;
+				},
 				create:function create(uniqueclass){
 					if(!!! Express.app.get('unique')) Express.app.set('unique', uniqueclass || Unique) ;
 					return AddressHierarchy.hierarchy = new AddressHierarchy(Express.app.get('unique')) ;
@@ -2501,7 +2336,6 @@
 			inherits:HierarchyChanger,
 			domain:Type.appdomain,
 			statics:{
-				weretested:false,
 				hashEnable:function hashEnable(href){
 					return '#' + href.replace(new RegExp(window.location.protocol + '//' + window.location.host), '').replace(/\/*$/,'/').replace(/^\/*/,'/').replace(/\/\/+/, '/') ;
 				},
@@ -2541,7 +2375,7 @@
 				
 				if(!abshashReg.test(a.absolute)) { // means it never has been hashchanged, so need to reset hash...
 					
-					AddressChanger.weretested = true ;
+					weretested = true ;
 					ch.locale = (a.loc != '' ? a.loc : initLocale ) ;
 					
 					// resetting AJAX via Hash
@@ -2608,8 +2442,8 @@
 				var uniquehandler ;
 				hh.root.bind('step_open', uniquehandler = function(e){
 					hh.root.unbind('step_open', uniquehandler) ;
-						if(!!window.opera) AddressChanger.weretested = false ;
-						if(AddressChanger.weretested === false ){
+						if(!!window.opera) weretested = false ;
+						if(weretested === false ){
 							var str = location.hash.replace('#/', '').replace(ch.locale, '') ;
 							// first hack when no home step at all
 							if(str == '/' && ch.getValue() == '' && AddressHierarchy.parameters.home == '' && Unique.getInstance().getChild('') === undefined)
@@ -2637,6 +2471,7 @@
 				document.title = this.roottitle + '  ' + title ;
 			}
 		}) ;
+
 
 		/* RESPONSE */
 		var Response = Type.define({
@@ -2698,6 +2533,7 @@
 				if(pattern !== '/' && PathUtil.allslash(pattern)){
 					res.regexp = new RegExp(PathUtil.trimall(pattern)) ;
 				}
+
 				return res ;
 			},
 			ready:function ready(){
@@ -2712,11 +2548,64 @@
 				// return new Mongo(url).load(undefined, false).render(params) ;
 				return params ;
 			},
-			render:function(url, params){
-				var res = this ;
-				//var t = new Jade().render(new Request().load(false, url, undefined, undefined, undefined, undefined, true).response, params) ;
-				var t = new Jade().render(new Request().load(false, Express.settings.views + url).response, params) ;
-				res.template = $(t).children() ;
+			generateHash:function(){ return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) },
+			render:function(url, params, callback){
+				
+				var res = this, args ;
+				
+				var hash = '?' + this.generateHash() ;
+				
+				var request, t ;
+				
+				if(callback){ // switch to ASYNC MODE
+					
+					args = [].slice.call(arguments) ;
+					url = args.shift() ;
+					params = args.shift() ;
+					callback = args.shift() ;
+					
+					try{
+						request = new Request().load(true, url + hash, function(jxhr, r){
+							
+							try{
+								
+								t = new Jade().render(r.response, params) ;
+							}catch(e){
+								
+								e.message = ('JadeModuleError :: Rendering ' + url + ' :: ' + e.message) ;
+								throw e ;
+								
+							}
+							
+							res.template = $(t).children() ;
+							callback.apply(res, [].concat(args)) ;
+						}) ;
+						
+					}catch(e){
+						e.message = ('JadeModuleError :: URL ' + url + 'not found') ;
+						throw e ;
+					}
+					
+				}else{
+					
+					try{
+						request = new Request().load(false, url + hash) ;
+					}catch(e){
+						e.message = ('JadeModuleError :: URL ' + url + 'not found') ;
+						throw e ;
+					}
+					
+					try{
+						t = new Jade().render(request.response, params) ;
+					}catch(e){
+						e.message = ('JadeModuleError :: Rendering ' + url + ' :: ' + e.message) ;
+						throw e ;
+					}
+					res.template = $(t).children() ;
+				}
+				
+				
+				
 				
 				return res ;
 			},
@@ -2747,12 +2636,11 @@
 				initialize:function(){
 					if(!!window.console && !! window.console.log) console.log('Express >> App Instanciated') ;
 					Express.app = new Express() ;
-				},
-				settings:{
-					'env': 'development',
-					'view_engine':'jade',
-					'views': undefined
 				}
+			},
+			settings:{
+				'env': 'development',
+				'views': undefined
 			},
 			destroy:function destroy(){
 				if (!!Unique.instance) Unique.instance = Unique.getInstance().destroy() ;
@@ -2760,7 +2648,6 @@
 			constructor:Express = function Express(win){
 				return !!Express.app ? Express.app : this ;
 			},
-			// JQUERY HEPLER
 			Qexists : function Qexists(sel, sel2) {
 				if(!!sel2) sel = $(sel).find(sel2) ;
 				sel = Type.is(sel, $) ? sel : $(sel) ;
@@ -2768,7 +2655,6 @@
 				s.target = sel ;
 				return (s.valueOf()) ? s.target : undefined ;
 			},
-			// EXPRESS EVENTS ATTACHING & REMOVING
 			listen:function listen(type, closure){
 				Express.disp.bind(type, closure) ;
 				return this ;
@@ -2777,7 +2663,18 @@
 				Express.disp.unbind(type, closure) ;
 				return this ;
 			},
-			// EXPRESS SETTINGS & CONFIGURATION
+			/* deprecated in Express 4.x
+
+			configure:function configure(env, fn){
+				var envs = 'all', args = ArrayUtil.argsToArray(arguments);
+				fn = args.pop() ;
+				if (args.length) envs = args ;
+				if ('all' == envs || envs.indexOf(this.settings.env))
+					fn.call(this) ;
+				return this ;
+			},
+
+			*/
 			use:function use(route, fn){
 				var app, home, handle ;
 				// default route to '/' 
@@ -2792,33 +2689,23 @@
 				}
 				return this ;
 			},
-			set: function set(setting, val){
-				if (1 == arguments.length) {
-					if (Express.settings.hasOwnProperty(setting)) {
-						return Express.settings[setting] ;
-					} else if(!!this.parent) {
-						return this.parent.set(setting) ;
-					}
-				} else {
-					Express.settings[setting] = val ;
-					return this;
-				}
-			},
-			// ADDRESS DEEPLINKING FEATURE
 			address:function address(params){
 				return this ;
+			},
+			isReady:function(){
+				return AddressHierarchy.isReady();
 			},
 			createClient:function createClient(){
 				AddressHierarchy
 						.setup(Express.app.get('address'))
 						.create(Express.app.get('unique')) ;
+				
 				return this ;
 			},
-			initAddress:function initAddress(){
+			initJSAddress:function initJSAddress(){
 				Express.app.get('unique').getInstance().commandOpen.dispatchComplete() ;
 				return this ;
 			},
-			// EXPRESS CORE ROUTING
 			get:function get(pattern, handler, parent){
 				
 				if(arguments.length == 1){ // is a getter of settings
@@ -2841,11 +2728,23 @@
 
 				res.handler = handler ;
 				res.responseAct = handler ;
+				
 				this.enableResponse(true, res, parent) ;
 				
 				return this ;
 			},
-			// MAKE / UNMAKE RESPONSE REACTIVE IN ADDRESS EVENTS FRAMEWORK
+			set: function set(setting, val){
+				if (1 == arguments.length) {
+					if (this.settings.hasOwnProperty(setting)) {
+						return this.settings[setting] ;
+					} else if(!!this.parent) {
+						return this.parent.set(setting) ;
+					}
+				} else {
+					this.settings[setting] = val ;
+					return this;
+				}
+			},
 			enableResponse:function enableResponse(cond, res, parent){
 				var handler = res.handler ;
 				
@@ -2876,7 +2775,6 @@
 			removeResponse:function removeResponse(res){
 				return this.enableResponse(false, res) ;
 			},
-			// PRIVATE EVENT HANDLINGS OF STEP SECTIONS
 			attachHandler:function attachHandler(cond, type, handler, res){
 				type = type.replace('@', '') ;
 				var bindmethod = cond ? 'bind' : 'unbind' ;
