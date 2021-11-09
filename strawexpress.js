@@ -88,6 +88,28 @@
 			}
 		}) ;
 		
+		var ObjectUtil = Type.define({
+			pkg:'utils::ObjectUtil',
+			domain:Type.appdomain,
+			statics:{
+				clone:function(obj){
+					var o ={} ;
+					for(var s in obj ){
+						o[s] = obj[s] ;
+					}
+					return o ;
+				},
+				merge:function(src, tg, forbidden){
+					forbidden = forbidden || [] ;
+					for(var s in src ){
+						if(s in forbidden) continue ;
+						tg[s] = src[s] ;
+					}
+					return tg ;
+				}
+			}
+		}) ;
+		
 		var PathUtil = Type.define({
 			pkg:'utils::PathUtil',
 			domain:Type.appdomain,
@@ -228,11 +250,10 @@
 							}
 							th.response = r.responseText ;
 							if(keepInLocalCache) cache[url] = th.response ;
-							if(!!complete) complete(r, th) ;
+							if(!!complete) complete(th, th.response) ;
 						}
 						if (r.readyState == 4) return ;
 						r.send(ud['postData']) ;
-
 					}else{
 						ud['post_method'] = 'GET' ;
 						r.open(ud['post_method'], loc, false) ;
@@ -248,7 +269,7 @@
 						}
 						this.response = r.responseText ;
 						if(keepInLocalCache) cache[url] = this.response ;
-						if(!!complete) complete(r, th) ;
+						if(!!complete) complete(th, th.response) ;
 					}
 
 					return this ;
@@ -441,11 +462,13 @@
 						:
 						(function(){
 							if('string' === typeof e){
-								var ev = document.createEvent('MouseEvents') ;
+								
+								var ev = document.createEvent('Event') ;
 								ev.initEvent(e, true, false) ;
 								e = ev ;
+								trace(e.constructor)
 							}
-							s._globalTarget.dispatchEvent('undefined' === typeof Event ? e : new Event(e.type)) ;
+							s._globalTarget.dispatchEvent('function' === typeof Event ? new Event(e.type) : e ) ;
 						})() 
 					:
 					false ;
@@ -908,9 +931,8 @@
 				},
 				checkBeforeTrigger:function(tg, e, force){
 					
-					var obj = !! force ? force : Global.willTrigger(tg, e, true) ;
 					
-					var dispatcher = obj.dispatcher ;
+					var obj = !! force ? force : Global.willTrigger(tg, e, true) ;
 					
 					if(obj.cond){
 						Global.trigger(obj.dispatcher, e) ;
@@ -941,7 +963,6 @@
 						}
 						
 					}else{
-						
 						Global.triggerDown(tg, e) ;
 						
 					}
@@ -1238,11 +1259,9 @@
 				cy.looping = true ;
 				cy.deferred = false ;
 				
-				
 				if(!! arr && arr.length > 0){
 					this.add.apply(this, arr) ;
 				}
-				
 				return this ;
 			},
 			add:function(){
@@ -1376,7 +1395,8 @@
 			   var cy = this ;
 			   
 			   if(n === undefined) n = 1 ;
-					  
+				
+				
 			   var neo = (cy.index * cy.unit.rad) + (n * cy.unit.rad) ;
 			   
 			   var l = cy.commands.length ;
@@ -1396,6 +1416,7 @@
 			   cy.ascend = Boolean(n === undefined || n > 0) ;
 			   
 			   var item = cy.getNext(n) ;
+			   
 			   var ind = item.index ;
 			   
 			   if(ind == -1) {
@@ -1403,6 +1424,45 @@
 			   }
 			   
 			   cy.increment = item.dif ;
+			   
+			   var c = cy.commands[ind].execute() ;
+			   cy.index = ind ;
+			   return c ;
+			},
+			getGo:function(n){
+			   var cy = this ;
+			   
+			   if(n === undefined) n = 1 ;
+				
+				
+			   var neo = (n * cy.unit.rad) ;
+			   
+			   var l = cy.commands.length ;
+			   if(cy.looping !== true){
+					if(cy.index >= l - 1)
+						return {index:-1} ;
+				}else{
+					neo = neo % (Math.PI * 2) ;
+			   }
+			   var s = this.seek(neo) ;
+			   s.dif = n ;
+			   return s ;
+			},
+			go:function(n){
+			   var cy = this ;
+			   
+			   cy.ascend = Boolean(n === undefined || n > 0) ;
+			   
+			   var item = cy.getGo(n) ;
+			   
+			   var ind = item.index ;
+			   
+			   if(ind == -1) {
+					return false ;
+			   }
+			   
+			   cy.increment = item.dif ;
+			   
 			   var c = cy.commands[ind].execute() ;
 			   cy.index = ind ;
 			   return c ;
@@ -1429,8 +1489,9 @@
 				return cy.commands.length ;
 			},
 			launch:function(ind){
-				var cy =  this ;
-				return cy.next(ind - cy.index) ;
+				var cy = this ;
+				
+				return cy.next(!!ind ? ind - cy.index : 0)  ;
 			},
 			destroy:function(){
 				var cy = this ;
@@ -1859,6 +1920,21 @@
 			},
 			hasNext:function hasNext(){ return this.getNext() ?  true : this.looping },
 			hasPrev:function hasPrev(){ return this.getPrev() ?  true : this.looping },
+			// Navigating behaviors
+			handleNext:function(){
+				if(!this.parentStep) return this ;
+				return this.parentStep.hasNext() ? this.parentStep.getNext() : this.parentStep.getChild(0) ;
+			},
+			handlePrev:function(){
+				if(!this.parentStep) return this ;
+				return this.parentStep.hasPrev() ? this.parentStep.getPrev() : this.parentStep.getChild(this.parentStep.children.length - 1) ;
+			},
+			handleUp:function(){
+				return this.parentStep == Unique.instance ? this : this.parentStep || this ;
+			},
+			handleDown:function(){
+				return this.defaultStep || this.children[0] || this ;
+			},
 			dumpChildren:function dumpChildren(str){
 				if(!!!str) str = '' ;
 				var chain = '                                                                            ' ;
@@ -1868,6 +1944,13 @@
 					if(parseInt(i+1) in arr) str += '\n' ;
 				})
 				return str ;
+			},
+			godFather:function(){
+				var s = this ;
+				while(!!s.parentStep && s.parentStep !== Unique.instance){
+					s = s.parentStep ;
+				}
+				return s ;
 			},
 			toString:function toString(){
 				var st = this ;
@@ -1994,6 +2077,7 @@
 			idTimeoutFocus:-1 ,
 			idTimeoutFocusParent:-1 ,
 			root:undefined , // Step
+			previousStep:undefined , // Step
 			currentStep:undefined , // Step
 			changer:undefined ,// HierarchyChanger;
 			exPath:'',
@@ -2050,11 +2134,21 @@
 				// trace('********************')
 				// trace('LAUNCHING DEEP : "' + path+'"')
 				// trace('********************')
-				hh.command = new CommandQueue(hh.formulate(path)) ;
-				var current = hh.currentStep ;
 				
-				if(Type.is(current, Unique)) hh.command.execute() ; // cast Unique in that case
-				else{
+				var arr = hh.formulate(path) ;
+				
+				if(!!!arr) {
+					// trace('NOTHING TO LAUCH HERE')
+					arr = hh.formulate('404') ;
+				}
+
+				var p = new CommandQueue(arr) ;
+				hh.command = p ;
+				var current = hh.currentStep ;
+				if(!!current) hh.previousStep = current ;
+				if(Type.is(current, Unique)) {
+					hh.command.execute() ; // cast Unique in that case
+				} else{
 					var foc_clear ;
 					current.bind('focus_clear', foc_clear = function(e){
 						current.unbind('focus_clear', foc_clear) ;
@@ -2088,7 +2182,6 @@
 			},
 			formulate:function formulate(path){
 				var hh = this ;
-				
 				if(hh.command === undefined) hh.changer.setTemporaryPath(path) ;
 				
 				var current = hh.currentStep ;
@@ -2097,15 +2190,14 @@
 				var tempreg = new RegExp('^'+currentpath+'\/?') ;
 				var remainpath = temppath.replace(tempreg, '') ;
 				
-				
-				// trace('FORMULATING : "'+ path + '"'
-					// + ' \n CURRENT : "' + currentpath + '"'
-					// + ' \n TEMP : "' + temppath + '"'
-					// + ' \n REMAINS : "' + remainpath + '"') ;
-				
+				// there really is no step at this depth to try to go.
+				if(!!!hh.getDeep(path)){ // if no dynamic steps this will work
+					return ;
+				}
+
 				if(tempreg.test(temppath) && hh.getLocaleReload()){
 				
-				
+					
 					// in case current is an hacked step containing default step
 					if(PathUtil.endslash(path)){
 						hh.state = hh.state ;
@@ -2118,7 +2210,6 @@
 					}
 					
 					var l = current.getLength() ;
-					
 					
 					while(l--){
 						var regexp ;
@@ -2135,6 +2226,7 @@
 									chunk = arguments[0] ;
 									return '' ;
 								}) ;
+
 								var def = PathUtil.ensurelast(current.path) + chunk ;
 								if(!!!hh.getDeep(def)){
 									Express.app.get(chunk, child.handler) ;
@@ -2144,7 +2236,7 @@
 								}
 								
 								hh.state = 'descending' ;
-								return hh.createCommandOpen(def) ;
+								return hh.createCommandOpen(def, {}) ;
 								
 							}
 							
@@ -2157,7 +2249,11 @@
 						}
 					}
 				}
-				
+				// there really is no step at this depth to try to go. // Old way with dynamic steps
+				// if(!!!hh.getDeep(path)){
+				// 	return ;
+				// }
+
 				// if still didnt find shit, close the current
 				hh.state = 'ascending' ;
 				return hh.createCommandClose(current.path) ;
@@ -2166,6 +2262,23 @@
 				// hh.clear() ;
 				// throw new Error('No step was actually found with path ' + (path == '' ? '(an empty string)' : path) + ' in ' + hh.getCurrentStep()) ;
 				
+			},
+			createCommandError:function createCommandError(path){
+				var hh = this ;
+				trace('Error State') ;
+				hh.clear() ;
+
+				var c = new Command(hh, hh.openErrorCommand) ;
+				c.params = [path, c] ;
+				return c ;
+			},
+			openErrorCommand:function openErrorCommand(path, c){
+				var hh = c.context ;
+				var st = new Step('404', new Command(hh, function(cond){
+					trace(cond) ;
+				}, true))
+				st.open() ;
+				return st ;
 			},
 			checkRunning:function checkRunning(path){
 				var hh = this ;
@@ -2213,10 +2326,12 @@
 			closeCommand:function closeCommand(path, c){
 				var hh = c.context ;
 				var st = hh.getDeep(path) ;
+
 				var st_close ;
 				
 				st.bind('step_close', st_close = function(e){
 					st.unbind('step_close', st_close) ;
+
 					st.state = Step.STATE_CLOSED ;
 					
 					hh.changer.setCurrentPath(PathUtil.trimfirst(st.parentStep.path)) ;
@@ -2264,6 +2379,7 @@
 			isStillRunning:function isStillRunning(){ return Type.is(this.command, Command)},
 			getRoot:function getRoot(){ return this.root },
 			getCurrentStep:function getCurrentStep(){ return this.currentStep },
+			getPreviousStep:function getPreviousStep(){ return this.previousStep },
 			getChanger:function getChanger(){ return this.changer },
 			getCommand:function getCommand(){ return this.command }
 		}) ;
@@ -2284,7 +2400,7 @@
 				isReady:function isReady(){
 					var address = AddressHierarchy.baseAddress ;
 					var base = address.base + address.path ;
-					return base == AddressHierarchy.parameters.base ;
+					return (base == AddressHierarchy.parameters.base) ;
 				},
 				create:function create(uniqueclass){
 					if(!!! Express.app.get('unique')) Express.app.set('unique', uniqueclass || Unique) ;
@@ -2359,7 +2475,7 @@
 				abshashReg = HierarchyChanger.__re_abs_hash ,
 				startSlashReg = HierarchyChanger.__re_startSlash ,
 				endSlashReg = HierarchyChanger.__re_endSlash ,
-				initLocale = document.documentElement.getAttribute('lang'),
+				initLocale = document.documentElement.getAttribute('lang') || AddressHierarchy.parameters.defaultLocale,
 				// base location object stuff
 				href =  loc.href , // -> http://dark:13002/#/fr/unsubscribe/
 				protocol =  loc.protocol , // -> http:
@@ -2373,7 +2489,8 @@
 				var a = new Address(href) ;
 				var home = AddressHierarchy.parameters.home ;
 				
-				if(!abshashReg.test(a.absolute)) { // means it never has been hashchanged, so need to reset hash...
+
+				if(!abshashReg.test(a.absolute)) { // if has no /#/...
 					
 					weretested = true ;
 					ch.locale = (a.loc != '' ? a.loc : initLocale ) ;
@@ -2383,14 +2500,17 @@
 					if(a.path === '/' && a.loc === '') {
 						var p = '#' + separator + ch.locale + a.path + a.qs ;
 						location.hash = p ;
-						// window.location.reload() ;
 					}else{
+
+						location.href = a.base + '#' + separator + ch.locale + a.path + a.qs
+						throw '' ;
 						loc.href = a.path + '#' + separator + ch.locale + a.hash + a.qs ;
 					}
 				}
 				
-				ch.locale = ch.locale || a.loc ;
 				
+				
+				ch.locale = ch.locale || a.loc ;
 				if(ch.locale == '') ch.locale = initLocale ;
 				
 				hh.setAncestor(uniqueClass.getInstance(), ch) ;
@@ -2414,7 +2534,9 @@
 						
 						// locale must have changed, reload with appropriate content
 						if(add.loc !== ch.locale){
+							
 							ch.locale = add.loc ;
+							// window.location.reload() ;
 							// AddressHierarchy.localereload = true ;
 						}
 						loc = separator + add.loc ;
@@ -2465,6 +2587,7 @@
 				if(AddressHierarchy.parameters.useLocale){
 					loc = '/' + this.locale ;
 				}
+				
 				this.setValue('#' + loc + step.path + '/') ;
 			},
 			setTitle:function setTitle(title){
@@ -2546,10 +2669,13 @@
 			focusReady:function focusReady(){ this.dispatchCleared() ; return this ;},
 			fetch:function(url, params){
 				// return new Mongo(url).load(undefined, false).render(params) ;
-				return params ;
+				
+				return ObjectUtil.merge(params, {
+					lang:AddressHierarchy.instance.changer.locale
+				}) ;
 			},
 			generateHash:function(){ return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) },
-			render:function(url, params, callback){
+			renderJade:function(url, params, callback){
 				
 				var res = this, args ;
 				
@@ -2564,12 +2690,13 @@
 					params = args.shift() ;
 					callback = args.shift() ;
 					
+					
 					try{
 						request = new Request().load(true, url + hash, function(jxhr, r){
 							
 							try{
+								t = new Jade().render(r, params) ;
 								
-								t = new Jade().render(r.response, params) ;
 							}catch(e){
 								
 								e.message = ('JadeModuleError :: Rendering ' + url + ' :: ' + e.message) ;
@@ -2606,6 +2733,49 @@
 				
 				
 				
+				
+				return res ;
+			},
+			render:function(url, params, callback){
+				
+				var res = this, args ;
+				
+				// var hash = '' ;
+				var hash = '?' + this.generateHash() ;
+				
+				var request, t ;
+				
+				if(!!callback){ // switch to ASYNC MODE
+					
+					args = [].slice.call(arguments) ;
+					url = args.shift() ;
+					params = args.shift() ;
+					callback = args.shift() ;
+					
+					try{
+						request = new Request().load(true, url + hash, function(jxhr, r){
+							
+							t = request.response ;
+							res.template = $(t) ;
+							callback.apply(res, [].concat(args)) ;
+						}) ;
+						
+					}catch(e){
+						e.message = ('LoadModuleError :: URL ' + url + 'not found') ;
+						throw e ;
+					}
+					
+				}else{
+					
+					try{
+						request = new Request().load(false, url + hash) ;
+						t = request.response ;
+					}catch(e){
+						e.message = ('LoadModuleError :: URL ' + url + 'not found') ;
+						throw e ;
+					}
+					res.template = $(t) ;
+				}
 				
 				return res ;
 			},
@@ -2659,22 +2829,21 @@
 				Express.disp.bind(type, closure) ;
 				return this ;
 			},
+			trigger:function trigger(type){
+
+				
+				Express.disp.trigger(type) ;
+
+				return this ;
+			},
+			fire:function fire(type){
+				Express.disp.fire(type) ;
+				return this ;
+			},
 			discard:function discard(type, closure){
 				Express.disp.unbind(type, closure) ;
 				return this ;
 			},
-			/* deprecated in Express 4.x
-
-			configure:function configure(env, fn){
-				var envs = 'all', args = ArrayUtil.argsToArray(arguments);
-				fn = args.pop() ;
-				if (args.length) envs = args ;
-				if ('all' == envs || envs.indexOf(this.settings.env))
-					fn.call(this) ;
-				return this ;
-			},
-
-			*/
 			use:function use(route, fn){
 				var app, home, handle ;
 				// default route to '/' 
@@ -2708,20 +2877,31 @@
 			},
 			get:function get(pattern, handler, parent){
 				
-				if(arguments.length == 1){ // is a getter of settings
+				if(arguments.length == 1){ // is a settings order 
 					return this.set(pattern) ;
 				}
+				var sectionId = handler.sectionId ;
+				
+				handler.sectionId = undefined ;
+				delete handler.sectionId ;
+				
+				var ud ;
 				
 				if(handler.constructor !== Function){
-					for(var s in handler)
+					for(var s in handler){
 						this.get(s == 'index' ? '/' : s , handler[s], parent) ;
+					}
 					return this ;
+				}else{
+					
 				}
 				
 				var id = pattern.replace(/(^\/|\/$)/g, '') ;
 				
 				var res = new Response(id, pattern) ;
-
+				
+				res.sectionId = sectionId ;
+				
 				res.parent = !!parent ? (id == '' ? parent.parentStep : parent) : res.path == '/' ? undefined : Express.app.get('unique').getInstance() ;
 				res.name = id == '' ? !!parent ? parent.id : Express.app.get('unique').getInstance().id : res.id ;
 
@@ -2745,6 +2925,9 @@
 					return this;
 				}
 			},
+			setUserData:function setUserData(data, res){
+				ObjectUtil.merge(data, res.userData) ;
+			},
 			enableResponse:function enableResponse(cond, res, parent){
 				var handler = res.handler ;
 				
@@ -2752,12 +2935,15 @@
 					
 					parent = parent || AddressHierarchy.hierarchy.currentStep ;
 					
+					
 					if(res.id == '') parent.defaultStep = res ;
 					parent.add(res) ;
 					
 					for(var s in handler){
+						if(s == 'name') continue ; // Stoopid IE trying to go for Name value of the function
 						if(s.indexOf('@') == 0) this.attachHandler(true, s, handler[s], res) ;
 						else if(s == 'index') this.get('', handler[s], res) ;
+						else if(s == 'userData') this.setUserData(handler[s], res) ;
 						else this.get(s, handler[s], res) ;
 					}
 					
@@ -2766,6 +2952,7 @@
 						if(s.indexOf('@') == 0) this.attachHandler(false, s, handler[s], res) ;
 					}
 					var l = res.getLength() ;
+					
 					while(l--){
 						this.enableResponse(false, res.getChild(l)) ;
 					}
