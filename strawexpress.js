@@ -1,2996 +1,3892 @@
-/*
- * StrawExpress (Express front-end simulation)
- * Base Webapp-oriented Framework, along with StrawNode
- * 
- * V 1.0.0
- * 
- * Dependancies : 
- *  - type.js
- * 
- * authored under Spark Project License
- * 
- * by saz aka True
- * sazaam[(at)gmail.com]
- * 2011-2013
- * 
- * 
+/** StrawExpress is a client-side Express-like routing framework for hash-based single-page applications.
+ *  It provides hierarchical step navigation, template rendering via Jade/Pug, event dispatching,
+ *  and a command-queue-based navigation lifecycle for animated transitions between views.
+ *
+ *  V 1.0.0
+ *
+ *  Dependencies : type.js
+ *
+ *  @license Spark Project License
+ *  @author saz aka True
+ *  @see    sazaam[(at)gmail.com]
+ *  2011-2013
+ *
+ *  @module     StrawExpress
+ *  @global     Express
  */
- 
-'use strict' ;
 
-(function(name, definition){
-	
-	if ('function' === typeof define){ // AMD
-		define(definition) ;
-	} else if ('undefined' !== typeof module && module.exports) { // Node.js
-		module.exports = ('function' === typeof definition) ? definition() : definition ;
+'use strict';
+
+(function (name, definition) {
+
+	if ('function' === typeof define) {
+		define(definition);
+	} else if ('undefined' !== typeof module && module.exports) {
+		module.exports = ('function' === typeof definition) ? definition() : definition;
 	} else {
-		if(definition !== undefined) this[name] = ('function' === typeof definition) ? definition() : definition ;
+		if (definition !== undefined) this[name] = ('function' === typeof definition) ? definition() : definition;
 	}
-	
-})('Express', (function(){
+
+})('Express', (function () {
 
 
-	if('undefined' === typeof Type) throw new Error('Express is missing a Dependancy >> ' + 'Type.js') ;
+	if ('undefined' === typeof Type) throw new Error('Express is missing a Dependancy >> ' + 'Type.js');
 
 
-	return Pkg.write('org.libspark.straw', function(){
+	return Pkg.write('org.libspark.straw', function () {
 
-		/* UTILS */
-		var CodeUtil = Type.define({
-			pkg:'utils::CodeUtil',
-			domain:Type.appdomain,
-			statics:{
-				overwritesafe:function overwritesafe(target, propname, propvalue){
-					if(!!! target[propname])
-						target[propname] = propvalue ;
-				}
-			}
-		}) ;
-		
-		var StringUtil = Type.define({
-			pkg:'utils::StringUtil',
-			domain:Type.appdomain,
-			statics:{
-				SPACE:' ',
-				SLASH:'/',
-				HASH:'#',
-				AROBASE:'@',
-				DOLLAR:'$',
-				EMPTY:''
-			}
-		}) ;
-		
-		var ArrayUtil = Type.define({
-			pkg:'utils::ArrayUtil',
-			domain:Type.appdomain,
-			statics:{
-				isArray:function(obj){
-					return Type.is(obj, Array) ;
+		/** @class Kompat
+		 *  Browser/OS compatibility detection singleton.
+		 *  Parses user-agent (legacy and modern userAgentData API) to identify
+		 *  browser name, version, OS, and platform. Adds CSS classes to
+		 *  `documentElement` for targeted styling and exposes boolean flags
+		 *  (isBrave, isMobile) on the instance. */
+		var Kompat = Type.define({
+			pkg: 'utils::Kompat',
+			domain: Type.appdomain,
+			/** @return {string} Formatted representation of the Kompat instance */
+			toString: function () {
+				var k = this;
+				return '[KOMPAT >>> \n\tns:' + k.id + ', \n\tname: ' + k.name + ', \n\tversion' + k.version + ', \n\tos:' + k.os + ', \n\tosversion:' + k.osversion + ']';
+			},
+			statics: {
+				instance: undefined,
+				/** @return {Kompat} The singleton Kompat instance */
+				getInstance: function getInstance() { return Kompat.instance || new Kompat() },
+				kompat: null,
+				/** @return {boolean} True if ES6 Symbol.toStringTag is supported */
+				checkES6BaseCompliant: function checkES6BaseCompliant() {
+					return typeof Symbol == "function" && typeof Symbol.toStringTag == "symbol";
 				},
-				slice:[].slice,
-				argsToArray:function(args){
-					return args.length ? ArrayUtil.slice.call(args) : [] ;
-				},
-				indexOf:function(arr, obj){
-					if(arr.hasOwnProperty('indexOf'))
-					return arr.indexOf.apply(arr, [obj]) ; // FF / CHR / OP implementation
-					var n = -1 ;
-					var l = arr.length ;
-					for(var i = 0 ; i < l ; i++ ){
-						if(arr[i] == obj) {
-							n = i ;
-							break ;
+				/** @return {boolean|number} False if not Brave, or the Brave version number */
+				checkBrave: function checkBrave() {
+					var brands, brave, i, l;
+					if (!!navigator.userAgentData && !!(brands = [].concat(navigator.userAgentData.brands))) {
+						if (brands.length == 0) return false;
+						for (i = 0, l = brands.length; i < l; i++) {
+							if (brands[i].brand == 'Brave') {
+								return parseInt(brands[i].version);
+							}
 						}
 					}
-					return n ;
-				}
-			}
-		}) ;
-		
-		var ObjectUtil = Type.define({
-			pkg:'utils::ObjectUtil',
-			domain:Type.appdomain,
-			statics:{
-				clone:function(obj){
-					var o ={} ;
-					for(var s in obj ){
-						o[s] = obj[s] ;
-					}
-					return o ;
+
+					return false;
 				},
-				merge:function(src, tg, forbidden){
-					forbidden = forbidden || [] ;
-					for(var s in src ){
-						if(s in forbidden) continue ;
-						tg[s] = src[s] ;
+				namespaces: {
+					ie: /MSIE [\d.]+/i,
+					ff: /Firefox.[\d.]+/i,
+					op: /[\d.]+ OPR/i,
+					safmob: /[\d.]+ Mobile Safari/i,
+					saf: /[\d.]+ Safari/i,
+					chr: /Chrome.[\d.]+/i
+				},
+				workspaces: {
+					win: /WINDOWS(?= NT ([\d.]+))/i,
+					ios: /iP[ao]d|iPhone/i,
+					mac: /Mac OS/,
+					chr: /CrOS/,
+					android: /Android/,
+					blackberry: /BlackBerry(?= ([\d.]+))/i,
+					linux: /Linux/
+				},
+				/** @return {string} Browser name */
+				getName: function () { return Kompat.kompat.name },
+				/** @return {string} Browser version */
+				getVersion: function () { return Kompat.kompat.version },
+				/** @return {string} OS name */
+				getOs: function () { return Kompat.kompat.os },
+				/** @return {string} OS version */
+				getOsVersion: function () {
+					return Kompat.kompat.osversion;
+				},
+				/** Initialise the Kompat singleton: detect browser/OS and add CSS classes.
+				 *  @return {Kompat} this */
+				initialize: function () {
+					var ctor = this;
+					var kompat = new ctor();
+					this.instance = kompat;
+
+					var brave = ctor.checkBrave();
+					kompat.isBrave = !!brave;
+					kompat.isMobile = navigator.maxTouchPoints > 1;
+
+					// --- 2.0: Try modern userAgentData API first (Chrome/Edge 90+) ---
+					var name, version, ns, os, osversion, w;
+					if (navigator.userAgentData && navigator.userAgentData.brands) {
+						var uaData = navigator.userAgentData;
+						var brands = uaData.brands;
+						var brandMap = { 'Google Chrome': 'chr', 'Microsoft Edge': 'edge', 'Opera': 'op', 'Brave': 'brave', 'Firefox': 'ff' };
+						for (var bi = 0; bi < brands.length; bi++) {
+							var bname = brands[bi].brand;
+							if (bname in brandMap) {
+								name = brands[bi].brand;
+								version = brands[bi].version;
+								ns = brandMap[bname];
+								break;
+							}
+						}
+						os = uaData.platform || 'unknown';
+						osversion = 'unknown';
+					} else {
+						// Fallback: legacy UA string parsing
+						var ua = navigator.userAgent;
+						var arr, p, x, y;
+						var namespaces = ctor.namespaces;
+						for (var s in namespaces) {
+							x = namespaces[s];
+							if (arr = x.exec(ua)) {
+								p = arr[0].replace('/', ' ');
+								version = p.replace(/[ A-Z]*/gi, '');
+								if (version === '') {
+									var vtest = /Version\/([\d.]+$)/;
+									if (vtest.test(ua)) {
+										ua.replace(vtest, function ($1, $2, $3) { version = $2; });
+									} else version = 'unknown';
+								}
+								name = p.replace(version, '').replace(' ', '');
+								if (name == 'OPR') name = 'Opera';
+								ns = s;
+								break;
+							}
+						}
+						var workspaces = ctor.workspaces;
+						for (var ws in workspaces) {
+							y = workspaces[ws];
+							if (y.test(ua)) {
+								ua.replace(y, function ($1, $2) { if ($2) osversion = $2; os = $1; });
+								w = ws;
+								break;
+							}
+						}
+						if (!os) os = 'unknown';
+						if (!osversion) osversion = 'unknown';
 					}
-					return tg ;
+
+					if (brave) { name = kompat.name = 'Brave'; version = kompat.version = brave.toString(); }
+
+					kompat.ns = ns;
+					kompat.name = name;
+					kompat.version = version;
+					kompat.os = os;
+					kompat.osversion = osversion;
+
+					if (ns) ctor[ns] = ctor[name] = true;
+					if (w) ctor[os] = ctor[w] = true;
+
+					var locals = (name || '') + ' ' + (w || '') + ' version_' + (version || '').toString().replace('.', ' -') + ' ';
+					document.documentElement.className = document.documentElement.className === '' ? locals : document.documentElement.className + ' ' + locals;
+					return this;
 				}
 			}
-		}) ;
-		
+		});
+
+
+		/* UTILS — utility classes providing common operations across the framework */
+
+		/** @class CodeUtil
+		 *  Safe object property assignment and deep cloning utilities. */
+		var CodeUtil = Type.define({
+			pkg: 'utils::CodeUtil',
+			domain: Type.appdomain,
+			statics: {
+				/** Assign a property only if the target does not already have one.
+				 *  @param {Object} target   The object to modify
+				 *  @param {string} propname The property name
+				 *  @param {*}      propvalue The value to assign */
+				overwritesafe: function overwritesafe(target, propname, propvalue) {
+					if (!!!target[propname])
+						target[propname] = propvalue;
+				},
+				/** Deep-clone an object via JSON serialisation.
+				 *  @param {Object} o The source object
+				 *  @return {Object} A deep copy */
+				deepclone: function deepclone(o) {
+					return JSON.parse(JSON.stringify(o));
+				}
+			}
+		});
+
+		/** @class StringUtil
+		 *  String constants and one prototype extension (`String.prototype.test`). */
+		var StringUtil = Type.define({
+			pkg: 'utils::StringUtil',
+			domain: Type.appdomain,
+			statics: {
+				SPACE: ' ',
+				SLASH: '/',
+				HASH: '#',
+				AROBASE: '@',
+				DOLLAR: '$',
+				EMPTY: '',
+				/** Extend String.prototype with a `.test()` method that tests the string
+				 *  against multiple substrings ORed together. Supports regex flags suffix. */
+				initialize: function () {
+					String.prototype.test = function (s, testedStrings) {
+						var mods = '';
+						var args = [].slice.call(arguments);
+						if (/\/(g|m|i){1,3}$/.test(args[args.length - 1])) mods = args.pop().replace('/', '');
+						var str = ('flat' in args ? args.flat(Infinity) : args).join('|');
+						return new RegExp(str, mods).test(this);
+					};
+
+				}
+			}
+		});
+		/** @class NumberUtil
+		 *  One prototype extension: `Number.prototype.clamped`. */
+		var NumberUtil = Type.define({
+			pkg: 'utils::NumberUtil',
+			domain: Type.appdomain,
+			statics: {
+				/** Extend Number.prototype with a `.clamped(min, max)` method. */
+				initialize: function () {
+					Number.prototype.clamped = function (min, max) {
+						return Math.max(Math.min(this, max), min);
+					}
+				}
+			}
+		});
+
+		/** @class ArrayUtil
+		 *  Array helper methods including a safe indexOf for legacy browsers. */
+		var ArrayUtil = Type.define({
+			pkg: 'utils::ArrayUtil',
+			domain: Type.appdomain,
+			statics: {
+				/** @param {*} obj
+				 *  @return {boolean} True if obj is an Array */
+				isArray: function (obj) {
+					return Type.is(obj, Array);
+				},
+				slice: [].slice,
+				/** Convert an arguments object to a real Array.
+				 *  @param {IArguments} args
+				 *  @return {Array} */
+				argsToArray: function (args) {
+					return args.length ? ArrayUtil.slice.call(args) : [];
+				},
+				/** Safe indexOf — uses native if available, falls back to manual loop.
+				 *  @param {Array} arr
+				 *  @param {*}     obj
+				 *  @return {number} The index or -1 */
+				indexOf: function (arr, obj) {
+					if (arr.hasOwnProperty('indexOf'))
+						return arr.indexOf.apply(arr, [obj]);
+					var n = -1;
+					var l = arr.length;
+					for (var i = 0; i < l; i++) {
+						if (arr[i] == obj) {
+							n = i;
+							break;
+						}
+					}
+					return n;
+				}
+			}
+		});
+
+		/** @namespace Logger
+		 *  Structured logging with configurable levels. Delegates to `trace()` if
+		 *  available, otherwise falls back to `console` methods.
+		 *  Level order: error (0) < warn (1) < info (2) < debug (3).
+		 *  Default level: info (2). Set via `Express.app.set('loglevel', 'warn')`. */
+		var Logger = {
+			_levels: { error: 0, warn: 1, info: 2, debug: 3 },
+			_currentLevel: 2,
+			/** @param {string} level One of 'error', 'warn', 'info', 'debug' */
+			_setLevel: function (level) {
+				this._currentLevel = this._levels[level] !== undefined ? this._levels[level] : 2;
+			},
+			/** Internal: write a message if its level passes the current threshold.
+			 *  @param {string} level
+			 *  @param {string} msg */
+			_log: function (level, msg) {
+				if (this._levels[level] <= this._currentLevel) {
+					var prefix = '[' + level.toUpperCase() + '][Express] ';
+					if (typeof trace !== 'undefined') {
+						trace(prefix + msg);
+					} else if (typeof console !== 'undefined') {
+						var method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log';
+						console[method](prefix + msg);
+					}
+				}
+			},
+			/** @param {string} msg */
+			error: function (msg) { this._log('error', msg); },
+			/** @param {string} msg */
+			warn: function (msg) { this._log('warn', msg); },
+			/** @param {string} msg */
+			info: function (msg) { this._log('info', msg); },
+			/** @param {string} msg */
+			debug: function (msg) { this._log('debug', msg); }
+		};
+
+		/** @class PathUtil
+		 *  URL/hash path string manipulation utilities.
+		 *  All methods are null-safe — they accept falsy input and return it as-is. */
 		var PathUtil = Type.define({
-			pkg:'utils::PathUtil',
-			domain:Type.appdomain,
-			statics:{
-				abs_hash_re:/#/,
-				hash_re:/^\/#\//,
-				startslash_re:/^\//,
-				safe_startslash_re:/(^\/)?/,
-				endslash_re:/\/$/,
-				safe_endslash_re:/(\/)?$/,
-				bothslash_re:/(^\/|\/$)/g,
-				multiplesep_re:/(\/){2,}/g,
-				undersore_re:/_/g,
-				path_re:/^[^?]+/,
-				qs_re:/\?.*$/,
-				replaceUnderscores:function(str){
-					return (!!str) ? str.replace(PathUtil.endslash_re, StringUtil.SPACE) : str ;
+			pkg: 'utils::PathUtil',
+			domain: Type.appdomain,
+			statics: {
+				abs_hash_re: /#/,
+				hash_re: /^\/#\//,
+				startslash_re: /^\//,
+				safe_startslash_re: /(^\/)?/,
+				endslash_re: /\/$/,
+				safe_endslash_re: /(\/)?$/,
+				bothslash_re: /(^\/|\/$)/g,
+				multiplesep_re: /(\/){2,}/g,
+				undersore_re: /_/g,
+				path_re: /^[^?]+/,
+				qs_re: /\?.*$/,
+				/** @param {string} str
+				 *  @return {string} String with trailing slash replaced by space */
+				replaceUnderscores: function (str) {
+					return (!!str) ? str.replace(PathUtil.endslash_re, StringUtil.SPACE) : str;
 				},
-				hasMultipleSeparators:function(str){
-					return (!!str) ? PathUtil.multiplesep_re.test(str) : str ;
+				/** @param {string} str
+				 *  @return {boolean} Whether the string contains consecutive slashes */
+				hasMultipleSeparators: function (str) {
+					return (!!str) ? PathUtil.multiplesep_re.test(str) : str;
 				},
-				removeMultipleSeparators:function(str){
-					return (!!str) ? str.replace(PathUtil.multiplesep_re, StringUtil.SLASH) : str ;
+				/** Collapse consecutive slashes into one.
+				 *  @param {string} str
+				 *  @return {string} */
+				removeMultipleSeparators: function (str) {
+					return (!!str) ? str.replace(PathUtil.multiplesep_re, StringUtil.SLASH) : str;
 				},
-				trimlast:function trimlast(str){
-					return (!!str) ? str.replace(PathUtil.endslash_re, StringUtil.EMPTY) : str ;
+				/** Remove trailing slash.
+				 *  @param {string} str
+				 *  @return {string} */
+				trimlast: function trimlast(str) {
+					return (!!str) ? str.replace(PathUtil.endslash_re, StringUtil.EMPTY) : str;
 				},
-				trimfirst:function trimfirst(str){
-					return (!!str) ? str.replace(PathUtil.startslash_re, StringUtil.EMPTY) : str ;
+				/** Remove leading slash.
+				 *  @param {string} str
+				 *  @return {string} */
+				trimfirst: function trimfirst(str) {
+					return (!!str) ? str.replace(PathUtil.startslash_re, StringUtil.EMPTY) : str;
 				},
-				trimall:function trimfirst(str){
-					return (!!str) ? str.replace(PathUtil.bothslash_re, StringUtil.EMPTY) : str ;
+				/** Remove both leading and trailing slashes.
+				 *  @param {string} str
+				 *  @return {string} */
+				trimall: function trimfirst(str) {
+					return (!!str) ? str.replace(PathUtil.bothslash_re, StringUtil.EMPTY) : str;
 				},
-				ensurelast:function ensurelast(str){
-					return (!!str) ? str.replace(PathUtil.safe_endslash_re, StringUtil.SLASH) : str ;
+				/** Ensure trailing slash (add if missing).
+				 *  @param {string} str
+				 *  @return {string} */
+				ensurelast: function ensurelast(str) {
+					return (!!str) ? str.replace(PathUtil.safe_endslash_re, StringUtil.SLASH) : str;
 				},
-				ensurefirst:function ensurefirst(str){
-					return (!!str) ? str.replace(PathUtil.safe_startslash_re, StringUtil.SLASH) : str ;
+				/** Ensure leading slash (add if missing).
+				 *  @param {string} str
+				 *  @return {string} */
+				ensurefirst: function ensurefirst(str) {
+					return (!!str) ? str.replace(PathUtil.safe_startslash_re, StringUtil.SLASH) : str;
 				},
-				ensureall:function ensureall(str){
-					return (!!str) ? PathUtil.ensurelast(PathUtil.ensurefirst(str)) : str ;
+				/** Ensure both leading and trailing slashes.
+				 *  @param {string} str
+				 *  @return {string} */
+				ensureall: function ensureall(str) {
+					return (!!str) ? PathUtil.ensurelast(PathUtil.ensurefirst(str)) : str;
 				},
-				endslash:function endslash(str){
-					return (!!str) ? PathUtil.endslash_re.test(str) : str ;
+				/** Test for trailing slash.
+				 *  @param {string} str
+				 *  @return {boolean} */
+				endslash: function endslash(str) {
+					return (!!str) ? PathUtil.endslash_re.test(str) : str;
 				},
-				startslash:function startslash(str){
-					return (!!str) ? PathUtil.startslash_re.test(str) : str ;
+				/** Test for leading slash.
+				 *  @param {string} str
+				 *  @return {boolean} */
+				startslash: function startslash(str) {
+					return (!!str) ? PathUtil.startslash_re.test(str) : str;
 				},
-				allslash:function allslash(str){
-					return (!!str) ? PathUtil.startslash(str) &&  PathUtil.endslash(str) : str ;
+				/** Test for both leading and trailing slashes.
+				 *  @param {string} str
+				 *  @return {boolean} */
+				allslash: function allslash(str) {
+					return (!!str) ? PathUtil.startslash(str) && PathUtil.endslash(str) : str;
 				},
-				eitherslash:function eitherslash(str){
-					return (!!str) ? PathUtil.bothslash_re.test(str) : str ;
+				/** Test for either leading or trailing slash.
+				 *  @param {string} str
+				 *  @return {boolean} */
+				eitherslash: function eitherslash(str) {
+					return (!!str) ? PathUtil.bothslash_re.test(str) : str;
 				}
 			}
-		}) ;
-		
-		/* NET */
-		var Request = Type.define((function(){
+		});
+
+		/* NET — XHR request classes */
+
+		/** @class Request
+		 *  Low-level XHR wrapper supporting sync/async loads, POST data, progress events,
+		 *  in-memory caching, timeout, and cache-busting. Iterates through a bank of XHR
+		 *  constructors to support legacy IE ActiveX objects. */
+		var Request = Type.define((function () {
 
 			var bank = [
-				function () {return new XMLHttpRequest()},
-				function () {return new ActiveXObject("Msxml2.XMLHTTP")},
-				function () {return new ActiveXObject("Msxml3.XMLHTTP")},
-				function () {return new ActiveXObject("Microsoft.XMLHTTP")}
-			] ;
-			
+				function () { return new XMLHttpRequest() },
+				function () { return new ActiveXObject("Msxml2.XMLHTTP") },
+				function () { return new ActiveXObject("Msxml3.XMLHTTP") },
+				function () { return new ActiveXObject("Microsoft.XMLHTTP") }
+			];
+
+			/** Try each XHR constructor in order, return the first that works.
+			 *  @return {XMLHttpRequest|ActiveXObject|boolean} */
 			var generateXHR = function () {
 				var xhttp = false;
-				var l = bank.length ;
-				for (var i = 0 ; i < l ; i++) {
+				var l = bank.length;
+				for (var i = 0; i < l; i++) {
 					try {
-					   xhttp = bank[i]();
+						xhttp = bank[i]();
 					}
 					catch (e) {
-					   continue;
+						continue;
 					}
 					break;
 				}
 				return xhttp;
-			} ;
+			};
 
-			var setPostData = function setPostData(postData){
+			/** Build the userData payload for a request.
+			 *  @param {*} postData
+			 *  @return {Object} { post_data, post_method, ua_header, post_data_header } */
+			var setPostData = function setPostData(postData) {
 				return {
-					post_data:postData,
-					post_method: !! postData ? "POST" : "GET",
-					ua_header:{ua:'User-Agent',ns:'XMLHTTP/1.0'},
-					post_data_header: !! postData ? {content_type:'Content-type',ns:'application/x-www-form-urlencoded'} : undefined 
-				} ;
-			}
-
-			var cache = {} ;
-
-			return {
-				pkg:'net',
-				domain:Type.appdomain,
-				constructor:Request = function Request(url, complete, postData, error){
-					var r = generateXHR() ;
-					if (!r) throw new Error('Current browser does not support XHR-type Http Requests') ;
-					this.request = r ;
-					this.url = url ;
-					this.complete = complete ;
-					this.error = error ;
-					this.async = false ;
-					this.userData = setPostData(postData) ;
-					this.failed = false ;
-				},
-				load:function load(async, url, complete, postData, error, keepInLocalCache, forceBrowserNoCache){
-					var r = this.request ;
-					var th = this ;
-					var ud = postData ? setPostData(postData) : this.userData ;
-					var complete = this.complete = complete || this.complete ;
-					var error = this.error = error || this.error ;
-					var async = this.async = async || this.async ;
-					var keepInLocalCache = keepInLocalCache || false ;
-					var forceBrowserNoCache = forceBrowserNoCache || false ;
-
-					var url = this.url = (url || this.url) ;
-					var loc = (forceBrowserNoCache) ? url + '?t=' + Date.now() : url ;
-					
-					if(keepInLocalCache && url in cache){
-						this.response = cache[url] ;
-						if(!!complete) complete(r, th) ;
-						return this ;
-					}
-
-					if(async){
-						r.open(ud['post_method'] , loc, true) ;
-						
-						if (ud['post_data_header'] !== undefined) r.setRequestHeader(ud['post_data_header']['content_type'],ud['post_data_header']['ns']) ;
-						r.onreadystatechange = function () {
-							if (r.readyState != 4) return;
-							if (r.status != 200 && r.status != 304) {
-								th.failed = true ;
-								if(!!error) error(r, url) ;
-								else throw new Error('RequestError : Path > "'+ url +'" failed, with status :'+ r.status) ;
-								return false ;
-							}
-							th.response = r.responseText ;
-							if(keepInLocalCache) cache[url] = th.response ;
-							if(!!complete) complete(th, th.response) ;
-						}
-						if (r.readyState == 4) return ;
-						r.send(ud['postData']) ;
-					}else{
-						ud['post_method'] = 'GET' ;
-						r.open(ud['post_method'], loc, false) ;
-						r.send(null) ;
-						r.onreadystatechange = function () {
-							if (r.readyState != 4) return;
-							if (r.status != 200 && r.status != 304) {
-								th.failed = true ;
-								if(!!error) error(r, url) ;
-								else throw new Error('RequestError : Path > "'+ url +'" failed, with status :'+ r.status) ;
-								return false ;
-							}
-						}
-						this.response = r.responseText ;
-						if(keepInLocalCache) cache[url] = this.response ;
-						if(!!complete) complete(th, th.response) ;
-					}
-
-					return this ;
-				},
-				destroy:function destroy(){
-					var ud = this.userData ;
-					for(var n in ud){
-						delete ud[n] ;
-					}
-					for(var s in this){
-						delete this[s] ;
-					}
-					
-					return undefined ;
-				}
-			} ;
-
-		})()) ;
-
-		var AjaxRequest = Type.define({
-			pkg:'net',
-			domain:Type.appdomain,
-			inherits:Request,
-			constructor:AjaxRequest = function AjaxRequest(url, complete, postData) {
-				AjaxRequest.base.apply(this, [].concat(ArrayUtil.argsToArray(arguments))) ;
-			},
-			load:function load(url, complete, postData, keepInLocalCache, forceBrowserNoCache){
-				AjaxRequest.factory.load.apply(this, [true].concat(ArrayUtil.argsToArray(arguments))) ;
-			},
-			destroy:function destroy(){
-				return AjaxRequest.factory.destroy.call(this) ;
-			}
-		}) ;
-		
-		/* PROXIES */
-		var Proxy = Type.define(function(){
-			var ns = {}, __global__ = window, returnValue = function(val, name){return val },
-			toStringReg = /^\[|object ?|class ?|\]$/g ,
-			DOMClass = function (obj) {
-			
-				if(!!obj.constructor && !!obj.constructor.prototype) return obj.constructor ;
-				var tname = obj.tagName, kl, trans = { // Prototype.js' help here
-				  "OPTGROUP": "OptGroup", "TEXTAREA": "TextArea", "P": "Paragraph","FIELDSET": "FieldSet", "UL": "UList", "OL": "OList", "DL": "DList","DIR": "Directory", "H1": "Heading", "H2": "Heading", "H3": "Heading","H4": "Heading", "H5": "Heading", "H6": "Heading", "Q": "Quote","INS": "Mod", "DEL": "Mod", "A": "Anchor", "IMG": "Image", "CAPTION":"TableCaption", "COL": "TableCol", "COLGROUP": "TableCol", "THEAD":"TableSection", "TFOOT": "TableSection", "TBODY": "TableSection", "TR":"TableRow", "TH": "TableCell", "TD": "TableCell", "FRAMESET":"FrameSet", "IFRAME": "IFrame", 'DIV':'Div', 'DOCUMENT':'Document', 'HTML':'Html', 'WINDOW':'Window'
+					post_data: postData,
+					post_method: !!postData ? "POST" : "GET",
+					ua_header: { ua: 'User-Agent', ns: 'XMLHTTP/1.0' },
+					post_data_header: !!postData ? { content_type: 'Content-type', ns: 'application/x-www-form-urlencoded' } : undefined
 				};
-				
-				if(!!!tname) {
-					if(obj === window){
-						tname = 'WINDOW' ;
-					}else
-					
-					for(var s in window){
-						if(obj == window[s]) {
-							tname = s.toUpperCase() ;
-							break ;
-						}
-					}
-				}
-				
-				if(!! trans[tname]) kl = (tname == 'Window') ? trans[tname] : 'HTML' + trans[tname] + 'Element' ;
-				else kl = tname.replace(/^(.)(.+)$/, '$1'.toUpperCase() + '$2'.toLowerCase()) ;
-				if(!!! __global__[kl] ) { 
-					__global__[kl] = { } ;
-					__global__[kl].prototype = document.createElement(tname)['__proto__'] ;
-					__global__[kl].toString = function(){ return '[object '+kl+']' } ;
-				}
-				return window[kl] ;
-			},
-			getPropertyClosure = function(val, name, obj){
-				var type = typeof val ;
-				switch(type){
-					case 'null': case 'undefined': case 'number': case 'string': case 'boolean':
-						return function(){ return (arguments.length > 0 ) ? (obj[name] = arguments[0]) : obj[name] } ; break ;
-					case 'object' :
-						return function(o, o2){
-							if(!!o){
-								var tt = typeof o, ob = obj[name] ;
-								if(tt == 'string' || tt == 'number') return (o2 === undefined) ? ob[o] : (ob[o] = o2) ;
-								for(var s in o)
-									ob[s] = o[s] ;
-								return obj[name] ;
-							}else return obj[name] ;
-						} ; break ;
-					case 'function' : return function(){ return obj[name].apply(obj, arguments) } ; break ;
-					default : return val ; break ;
-				}
-			} ;
-			
+			}
+
+			var cache = {};
+
 			return {
-				pkg:'proxies',
-				domain:Type.appdomain,
-				statics:{
-					getProxy:function(target){ return target['__proxy__'] },
-					Class:function(t, o){return new Proxy(t, o, true) }
+				pkg: 'net',
+				domain: Type.appdomain,
+				/** @param {string}   [url]       Request URL
+				 *  @param {Function} [complete]  Success callback: fn(request, responseText)
+				 *  @param {*}        [postData]  POST body (null/undefined → GET)
+				 *  @param {Function} [error]     Error callback: fn(xhr, url)
+				 *  @param {Function} [progress]  Progress callback: fn(percent, event) */
+				constructor: Request = function Request(url, complete, postData, error, progress) {
+					var r = generateXHR();
+					if (!r) throw new Error('Current browser does not support XHR-type Http Requests');
+					this.request = r;
+					this.url = url;
+					this.complete = complete;
+					this.error = error;
+					this.async = false;
+					this.userData = setPostData(postData);
+					this.failed = false;
+					this.progress = progress;
+					this._timeout = 10000;
+					this._timeoutId = null;
 				},
-				constructor:Proxy = function Proxy(target, override, toClass){
-					
-					var obj = target, cl = target.constructor, withoutnew = (this === __global__), tobecached = false, clvars, ret, func ;
-					var name_r = /function([^\(]+)/ ;
-					var getctorname = function(cl, name){ return (cl = cl.match(name_r))? cl[1].replace(' ', ''):'' } ;
-					tobecached = (withoutnew) ? true : false ;
-					
-					cl = (!!!cl) ? DOMClass(target).toString().replace(toStringReg, '') : cl.toString().replace(toStringReg, '') ;
-					if(toClass === true) {
-						tobecached = true ;
-						cl = cl + 'Proxy' ;
-					} ;
-					
-					
-					
-					if(cl.indexOf('function ') == 0) cl = cl.match(name_r)[1].replace(/^ /, '') ;
-					
-					// if in cache
-					if(!!ns[cl] && tobecached === true) {
-						ret = ns[cl] ;
-						return (toClass) ? ret : new ret(target) ;
+				/** Override the default 10s timeout for this request.
+				 *  @param {number} ms Timeout in milliseconds
+				 *  @return {Request} this */
+				setTimeout: function (ms) {
+					this._timeout = ms;
+					return this;
+				},
+				/** Execute the XHR load. Supports sync and async modes,
+				 *  in-memory caching (skips XHR if URL already cached), progress
+				 *  tracking, and timeout with native or fallback implementation.
+				 *  @param {boolean}  [async]             Async mode (default false)
+				 *  @param {string}   [url]               Request URL (falls back to constructor url)
+				 *  @param {Function} [complete]          Success callback: fn(request, responseText)
+				 *  @param {*}        [postData]          POST body
+				 *  @param {Function} [error]             Error callback: fn(xhr, url)
+				 *  @param {boolean}  [keepInLocalCache]  Cache response in memory
+				 *  @param {boolean}  [forceBrowserNoCache] Append cache-busting query param
+				 *  @param {Function} [progress]          Progress callback: fn(percent, event)
+				 *  @return {Request} this */
+				load: function load(async, url, complete, postData, error, keepInLocalCache, forceBrowserNoCache, progress) {
+					var r = this.request;
+					var th = this;
+					var ud = postData ? setPostData(postData) : this.userData;
+					var complete = this.complete = complete || this.complete;
+					var error = this.error = error || this.error;
+					var progress = this.progress = progress || this.progress;
+					var async = this.async = async || this.async;
+					var keepInLocalCache = keepInLocalCache || false;
+					var forceBrowserNoCache = forceBrowserNoCache || false;
+
+					var url = this.url = (url || this.url);
+					var loc = (forceBrowserNoCache) ? url + '?t=' + Date.now() : url;
+
+					// trace('in here keep', keepInLocalCache)
+					// trace('in here cached', url in cache)
+
+					if (keepInLocalCache && url in cache) {
+						this.response = cache[url];
+						if (!!complete) complete(r, th);
+						return this;
 					}
-					
-					var tg = target.constructor === Function ? target : target.constructor ;
-					
-					var name ;
-					if(!!!tg) name = cl ;
-					else name = tg == Object ? '' : (tg.name || getctorname(tg.toString())) ;
-					
-					
-					var tar, over ;	
-					tar = target ; over = override ;
-					over.original = {} ;
-					over.protoinit = function(){
-						for(var s in tar) {
-							if(s == 'constructor') continue ;	
-							if(s == 'toString') continue ;	
-							if(s == '__proxy__') continue ;	
-							
-							if(s in this){this.original[s] = getPropertyClosure(tar[s], s, tar) ;}
-							else
-								this[s] = getPropertyClosure(tar[s], s, tar) ;
+					// trace('ACTUALLY LOADING')
+					// 2.0: single shared response handler — no more duplication
+					var handleResponse = function () {
+						if (r.readyState != 4) return;
+						if (th._timeoutId) { clearTimeout(th._timeoutId); th._timeoutId = null; }
+						if (r.status != 200 && r.status != 304) {
+							th.failed = true;
+							if (!!error) error(r, url);
+							else throw new Error('RequestError : Path > "' + url + '" failed, with status :' + r.status);
+							return;
 						}
-					} ;
-					
-					var out = tar['__proxy__'] = Type.define(over) ;
-					out.base = tar.constructor ;
-					out.factory = tar ;
-					
-					var store = function(r, ns, cl){
-						if(tobecached === true) ns[cl] = r ;
-						return r ;
-					} ;
-					
-					ret = store(out, ns, cl) ;
-					return (toClass) ? ret : new ret(target) ;
+						th.response = r.responseText;
+						if (keepInLocalCache) cache[url] = th.response;
+						if (!!complete) complete(th, th.response);
+					};
+
+					if (async) {
+						if (!!th.progress) {
+							r.onprogress = function (e) {
+								if (e.lengthComputable) th.progress((e.loaded / e.total) * 100, e);
+							};
+						}
+						r.open(ud['post_method'], loc, true);
+						if (ud['post_data_header'] !== undefined) r.setRequestHeader(ud['post_data_header']['content_type'], ud['post_data_header']['ns']);
+						r.onreadystatechange = handleResponse;
+						if (r.readyState == 4) return this;
+						// 2.0: Timeout support
+						if (typeof r.timeout !== 'undefined') {
+							r.timeout = th._timeout;
+							r.ontimeout = function () {
+								th.failed = true;
+								Logger.warn('Request timeout: ' + url);
+								if (!!error) error(r, url);
+								else if (!!complete) complete(th, '');
+							};
+						} else {
+							th._timeoutId = setTimeout(function () {
+								th.failed = true;
+								Logger.warn('Request timeout (fallback): ' + url);
+								if (!!error) error(r, url);
+								else if (!!complete) complete(th, '');
+							}, th._timeout);
+						}
+						r.send(ud['postData']);
+					} else {
+						ud['post_method'] = 'GET';
+						r.open(ud['post_method'], loc, false);
+						r.send(null);
+						r.onreadystatechange = handleResponse;
+						handleResponse(); // sync XHR fires immediately
+					}
+
+					return this;
+				},
+				/** Destroy this request: clear timeout, delete all properties.
+				 *  @return {undefined} */
+				destroy: function destroy() {
+					if (this._timeoutId) { clearTimeout(this._timeoutId); this._timeoutId = null; }
+					var ud = this.userData;
+					for (var n in ud) {
+						delete ud[n];
+					}
+					for (var s in this) {
+						delete this[s];
+					}
+
+					return undefined;
 				}
-			} ;
-		}) ;
-		
-		
-		
-		/* EVENT & EVENTDISPATCHERS */
+			};
+
+		})());
+
+		/** @class AjaxRequest
+		 *  @extends Request
+		 *  Convenience subclass that always loads in async mode.
+		 *  The `load()` override prepends `true` for the async parameter. */
+		var AjaxRequest = Type.define({
+			pkg: 'net',
+			domain: Type.appdomain,
+			inherits: Request,
+			/** @param {string}   [url]
+			 *  @param {Function} [complete]
+			 *  @param {*}        [postData]
+			 *  @param {Function} [error]
+			 *  @param {Function} [progress] */
+			constructor: AjaxRequest = function AjaxRequest(url, complete, postData, error, progress) {
+				AjaxRequest.base.apply(this, [].concat(ArrayUtil.argsToArray(arguments)));
+			},
+			/** Async load. All parameters same as Request.load() except async is forced true.
+			 *  @param {string}   url
+			 *  @param {Function} complete
+			 *  @param {*}        postData
+			 *  @param {boolean}  keepInLocalCache
+			 *  @param {boolean}  forceBrowserNoCache
+			 *  @param {Function} progress
+			 *  @return {AjaxRequest} this */
+			load: function load(url, complete, postData, keepInLocalCache, forceBrowserNoCache, progress) {
+				AjaxRequest.factory.load.apply(this, [true].concat(ArrayUtil.argsToArray(arguments)));
+			},
+			destroy: function destroy() {
+				return AjaxRequest.factory.destroy.call(this);
+			}
+		});
+
+		/* PROXIES — dynamic proxy/prototype system for DOM elements and constructors */
+
+		/** @class Proxy
+		 *  Dynamic proxy system that wraps any object, constructor, or DOM element,
+		 *  generating a proxied class with getter/setter closures for every property.
+		 *  Supports caching for class proxies and automatic DOM element class detection.
+		 *  @static */
+		var Proxy = Type.define(function () {
+			var ns = {}, __global__ = window, returnValue = function (val, name) { return val },
+				toStringReg = /^\[|object ?|class ?|\]$/g,
+				/** Resolve the constructor/class of a DOM element or window object.
+				 *  @param {Object} obj A DOM node or window
+				 *  @return {Function} The constructor */
+				DOMClass = function (obj) {
+
+					if (!!obj.constructor && !!obj.constructor.prototype) return obj.constructor;
+					var tname = obj.tagName, kl, trans = { // Prototype.js' help here
+						"OPTGROUP": "OptGroup", "TEXTAREA": "TextArea", "P": "Paragraph", "FIELDSET": "FieldSet", "UL": "UList", "OL": "OList", "DL": "DList", "DIR": "Directory", "H1": "Heading", "H2": "Heading", "H3": "Heading", "H4": "Heading", "H5": "Heading", "H6": "Heading", "Q": "Quote", "INS": "Mod", "DEL": "Mod", "A": "Anchor", "IMG": "Image", "CAPTION": "TableCaption", "COL": "TableCol", "COLGROUP": "TableCol", "THEAD": "TableSection", "TFOOT": "TableSection", "TBODY": "TableSection", "TR": "TableRow", "TH": "TableCell", "TD": "TableCell", "FRAMESET": "FrameSet", "IFRAME": "IFrame", 'DIV': 'Div', 'DOCUMENT': 'Document', 'HTML': 'Html', 'WINDOW': 'Window'
+					};
+
+					if (!!!tname) {
+						if (obj === window) {
+							tname = 'WINDOW';
+						} else
+
+							for (var s in window) {
+								if (obj == window[s]) {
+									tname = s.toUpperCase();
+									break;
+								}
+							}
+					}
+
+					if (!!trans[tname]) kl = (tname == 'Window') ? trans[tname] : 'HTML' + trans[tname] + 'Element';
+					else kl = tname.replace(/^(.)(.+)$/, '$1'.toUpperCase() + '$2'.toLowerCase());
+					if (!!!__global__[kl]) {
+						__global__[kl] = {};
+						__global__[kl].prototype = document.createElement(tname)['__proto__'];
+						__global__[kl].toString = function () { return '[object ' + kl + ']' };
+					}
+					return window[kl];
+				},
+				/** Generate a getter/setter closure for a property on an object.
+				 *  @param {*}      val  The current value
+				 *  @param {string} name The property name
+				 *  @param {Object} obj  The target object
+				 *  @return {Function} Closure acting as getter (no args) or setter (1+ args) */
+				getPropertyClosure = function (val, name, obj) {
+					var type = typeof val;
+					switch (type) {
+						case 'null': case 'undefined': case 'number': case 'string': case 'boolean':
+							return function () { return (arguments.length > 0) ? (obj[name] = arguments[0]) : obj[name] }; break;
+						case 'object':
+							return function (o, o2) {
+								if (!!o) {
+									var tt = typeof o, ob = obj[name];
+									if (tt == 'string' || tt == 'number') return (o2 === undefined) ? ob[o] : (ob[o] = o2);
+									for (var s in o)
+										ob[s] = o[s];
+									return obj[name];
+								} else return obj[name];
+							}; break;
+						case 'function': return function () { return obj[name].apply(obj, arguments) }; break;
+						default: return val; break;
+					}
+				};
+
+			return {
+				pkg: 'proxies',
+				domain: Type.appdomain,
+				statics: {
+					/** Retrieve the proxy object for a target.
+					 *  @param {Object} target
+					 *  @return {Object|undefined} */
+					getProxy: function (target) { return target['__proxy__'] },
+					/** Create a cached proxy class (not instance).
+					 *  @param {*}      t Target
+					 *  @param {Object} o Override descriptor
+					 *  @return {Function} The proxy constructor */
+					Class: function (t, o) { return new Proxy(t, o, true) }
+				},
+				/** @param {Object}  target    The object to proxy
+				 *  @param {Object}  override   Property overrides/extension descriptor
+				 *  @param {boolean} [toClass]  If true, returns the constructor, not an instance */
+				constructor: Proxy = function Proxy(target, override, toClass) {
+
+					var obj = target, cl = target.constructor, withoutnew = (this === __global__), tobecached = false, clvars, ret, func;
+					var name_r = /function([^\(]+)/;
+					var getctorname = function (cl, name) { return (cl = cl.match(name_r)) ? cl[1].replace(' ', '') : '' };
+					tobecached = (withoutnew) ? true : false;
+
+					cl = (!!!cl) ? DOMClass(target).toString().replace(toStringReg, '') : cl.toString().replace(toStringReg, '');
+					if (toClass === true) {
+						tobecached = true;
+						cl = cl + 'Proxy';
+					};
+
+
+
+					if (cl.indexOf('function ') == 0) cl = cl.match(name_r)[1].replace(/^ /, '');
+
+					// if in cache
+					if (!!ns[cl] && tobecached === true) {
+						ret = ns[cl];
+						return (toClass) ? ret : new ret(target);
+					}
+
+					var tg = target.constructor === Function ? target : target.constructor;
+
+					var name;
+					if (!!!tg) name = cl;
+					else name = tg == Object ? '' : (tg.name || getctorname(tg.toString()));
+
+
+					var tar, over;
+					tar = target; over = override;
+					over.original = {};
+					over.protoinit = function () {
+						for (var s in tar) {
+							if (s == 'constructor') continue;
+							if (s == 'toString') continue;
+							if (s == '__proxy__') continue;
+
+							if (s in this) { this.original[s] = getPropertyClosure(tar[s], s, tar); }
+							else
+								this[s] = getPropertyClosure(tar[s], s, tar);
+						}
+					};
+
+					var out = tar['__proxy__'] = Type.define(over);
+					out.base = tar.constructor;
+					out.factory = tar;
+
+					var store = function (r, ns, cl) {
+						if (tobecached === true) ns[cl] = r;
+						return r;
+					};
+
+					ret = store(out, ns, cl);
+					return (toClass) ? ret : new ret(target);
+				}
+			};
+		});
+
+
+
+		/* EVENT & EVENTDISPATCHERS — event system */
+
+		/** @class IEvent
+		 *  Lightweight event object. Accepts a type string or another event to copy from.
+		 *  @param {string|IEvent} type  Event type string, or an existing event to clone
+		 *  @param {Object}       [data] Extra data properties */
 		var IEvent = Type.define({
-			pkg:'event::IEvent',
-			domain:Type.appdomain,
-			constructor:IEvent = function IEvent(type, data){
-				this.timeStamp = + (new Date()) ;
-				var signature = arguments.length ;
-				
-				if('string' == typeof type){
-					this.type = type ;
-				}else if(!!type.type){
-					for(var s in type)
-						this[s] = type[s] ;
-				}else if(!!data){
-					for(var s in data)
-						this[s] = data[s] ;
+			pkg: 'event::IEvent',
+			domain: Type.appdomain,
+			constructor: IEvent = function IEvent(type, data) {
+				this.timeStamp = + (new Date());
+				var signature = arguments.length;
+
+				if ('string' == typeof type) {
+					this.type = type;
+				} else if (!!type.type) {
+					for (var s in type)
+						this[s] = type[s];
+				} else if (!!data) {
+					for (var s in data)
+						this[s] = data[s];
 				}
 			}
-		}) ;
+		});
+		/** @class DOMEventDispatcher
+		 *  Wraps native DOM event dispatch (attachEvent/addEventListener) and synthetic
+		 *  event creation. Used internally by Global. */
 		var DOMEventDispatcher = Type.define({
-			pkg:'event::DOMEventDispatcher',
-			domain:Type.appdomain,
-			constructor:DOMEventDispatcher = function DOMEventDispatcher(){
+			pkg: 'event::DOMEventDispatcher',
+			domain: Type.appdomain,
+			constructor: DOMEventDispatcher = function DOMEventDispatcher() {
 				//
 			},
-			trigger:function(e){
-				var s = this ;
-				
-				return (Global.isNativeEventDispatcher(this._globalTarget)) ? 
-					( this._globalTarget.fireEvent ) ?
-						(function(){
-							s._globalTarget.fireEvent('on' + e) ;	
+			/** Fire a native DOM event on the associated element.
+			 *  @param {string|Event} e Event type string or native event object
+			 *  @return {boolean|undefined} False if the target is not a native dispatcher */
+			trigger: function (e) {
+				var s = this;
+
+				return (Global.isNativeEventDispatcher(this._globalTarget)) ?
+					(this._globalTarget.fireEvent) ?
+						(function () {
+							s._globalTarget.fireEvent('on' + e);
 						})()
 						:
-						(function(){
-							if('string' === typeof e){
-								
-								var ev = document.createEvent('Event') ;
-								ev.initEvent(e, true, false) ;
-								e = ev ;
-								trace(e.constructor)
+						(function () {
+							if ('string' === typeof e) {
+
+								var ev = document.createEvent('Event');
+								ev.initEvent(e, true, false);
+								e = ev;
+								// trace(e.constructor)
 							}
-							s._globalTarget.dispatchEvent('function' === typeof Event ? new Event(e.type) : e ) ;
-						})() 
+							s._globalTarget.dispatchEvent('function' === typeof Event ? new Event(e.type) : e);
+						})()
 					:
-					false ;
+					false;
 			},
-			bind:function bind(type, closure){
-				
+			/** Bind a DOM event listener.
+			 *  @param {string}   type    Event type (without 'on' prefix)
+			 *  @param {Function} closure Handler
+			 *  @return {boolean|undefined} False if not a native dispatcher */
+			bind: function bind(type, closure) {
+
 				return (Global.isNativeEventDispatcher(this._globalTarget)) ?
-					(!!this._globalTarget.attachEvent) ? 
-						this._globalTarget.attachEvent('on'+type, closure)
+					(!!this._globalTarget.attachEvent) ?
+						this._globalTarget.attachEvent('on' + type, closure)
 						:
 						this._globalTarget.addEventListener(type, closure, true)
 					:
-					false ;
+					false;
 			},
-			unbind:function unbind(type, closure){
-				
+			/** Unbind a DOM event listener.
+			 *  @param {string}   type    Event type
+			 *  @param {Function} closure Handler
+			 *  @return {boolean|undefined} False if not a native dispatcher */
+			unbind: function unbind(type, closure) {
+
 				return (Global.isNativeEventDispatcher(this._globalTarget)) ?
-					(!!this._globalTarget.detachEvent) ? 
-						this._globalTarget.detachEvent('on'+type, closure)
+					(!!this._globalTarget.detachEvent) ?
+						this._globalTarget.detachEvent('on' + type, closure)
 						:
 						this._globalTarget.removeEventListener(type, closure, true)
 					:
-					false ;
+					false;
 			},
-			destroy:function(){
-				for(var s in this)
-					delete this[s] ;
-				
-				return undefined ;
+			/** Delete all own properties, return undefined. */
+			destroy: function () {
+				for (var s in this)
+					delete this[s];
+
+				return undefined;
 			}
-		}) ;
+		});
+		/** @class EventDispatcher
+		 *  @extends DOMEventDispatcher
+		 *  Custom event dispatcher with listener registration, removal, and dispatch.
+		 *  Maintains `_listeners`, `_proxies`, and `_dispatchers` registries.
+		 *  @param {Object} [tg] Global target for DOM event delegation */
 		var EventDispatcher = Type.define({
-			pkg:'event::EventDispatcher',
-			domain:Type.appdomain,
-			inherits:DOMEventDispatcher,
-			constructor:EventDispatcher = function EventDispatcher(tg){
-				
-				EventDispatcher.base.apply(this, [tg]) ;
-				
-				this._flag = 0 ;
-				this._handlers = [] ;
-				this._proxies = [] ;
-				this._dispatchers = [] ;
-				
-				if(!!tg) {
-					this.setDispatcher(tg) ;
+			pkg: 'event::EventDispatcher',
+			domain: Type.appdomain,
+			inherits: DOMEventDispatcher,
+			constructor: EventDispatcher = function EventDispatcher(tg) {
+
+				EventDispatcher.base.apply(this, [tg]);
+
+				this._listeners = {};
+				this._proxies = [];
+				this._dispatchers = [];
+
+				if (!!tg) {
+					this.setDispatcher(tg);
 				}
 			},
-			setDispatcher:function(tg){
-				return Global.setDispatcher(this, tg) ;
+			/** @param {Object} [tg] Native DOM target to delegate to
+			 *  @return {Object} Result of Global.setDispatcher */
+			setDispatcher: function (tg) {
+				return Global.setDispatcher(this, tg);
 			},
-			bind:function(type, closure){
-				return Global.bind(this, type, closure) ;
+			/** @param {string}   type    Event type
+			 *  @param {Function} closure Handler
+			 *  @return {Object} Result of Global.bind */
+			bind: function (type, closure) {
+				return Global.bind(this, type, closure);
 			},
-			unbind:function(type, closure){
-				return Global.unbind(this, type, closure) ;
+			/** @param {string}   type    Event type
+			 *  @param {Function} closure Handler
+			 *  @return {Object} Result of Global.unbind */
+			unbind: function (type, closure) {
+				return Global.unbind(this, type, closure);
 			},
-			trigger:function(e){
-				return Global.checkBeforeTrigger(this, e) ;
+			/** @param {string|IEvent} e
+			 *  @return {Object} Result of Global.checkBeforeTrigger */
+			trigger: function (e) {
+				return Global.checkBeforeTrigger(this, e);
 			},
-			fire:function(e){
-				return Global.fire(this, e) ;
+			/** @param {IEvent} e
+			 *  @return {Object} Result of Global.fire */
+			fire: function (e) {
+				return Global.fire(this, e);
 			},
-			willTriggerNow:function(e){
-				return Global.willTriggerNow(this, e) ; 
+			/** @param {IEvent} e
+			 *  @return {boolean} */
+			willTriggerNow: function (e) {
+				return Global.willTriggerNow(this, e);
 			},
-			willTrigger:function(e){
-				return Global.willTrigger(this, e) ; 
+			/** @param {IEvent} e
+			 *  @return {boolean} */
+			willTrigger: function (e) {
+				return Global.willTrigger(this, e);
 			},
-			destroy:function(){
-				if(!! this._dispatchers && this._dispatchers.length) this.setDispatcher() ;
-				
-				(!! this._proxies &&
-				Global.loop(this._proxies, function(p){
-					Global._removeProxy(p) ;
-				}, true)) ;
-				
-				(!! this._handlers &&
-				Global.loop(this._handlers, function(h){
-					Global._removeHandler(this, h) ;				
-				}, true)) ;
-				
-				for(var s in this)
-					delete this[s] ;
+			/** Full teardown: remove dispatchers, proxies, all listeners, then clear properties. */
+			destroy: function () {
+				if (!!this._dispatchers && this._dispatchers.length) this.setDispatcher();
 
-				return EventDispatcher.factory.destroy.call(this) ;
+				(!!this._proxies &&
+					Global.loop(this._proxies, function (p) {
+						Global._removeProxy(p);
+					}, true));
+
+				for (var type in this._listeners) {
+					var list = this._listeners[type];
+					while (list && list.length) Global._removeHandler(this, type, list[0]);
+				}
+				this._listeners = null;
+
+				for (var s in this)
+					delete this[s];
+
+				return EventDispatcher.factory.destroy.call(this);
 			}
-		}) ;
+		});
+		/** @class Global
+		 *  @static
+		 *  Central event system managing listener registration, proxy chains, DOM
+		 *  event delegation, and dispatch hierarchy. All EventDispatcher instances
+		 *  delegate to Global for their event operations. */
 		var Global = Type.define({
-			pkg:'event::Global',
-			domain:Type.appdomain,
-			statics:{
-				events:{},
-				all:[],
-				IEvent:IEvent,
-				evtypeindex:0,
-				loop:function(arr, closure, reversed){
-					
-					var l = arr.length ;
-					
-					if(!!reversed){
-						
-						for(; l-- ; ){
-							var p = arr[l] ;
-							try{
-								closure.apply(p, [p, l, arr]) ;
-							}catch(e){
-								trace(e) ;
+			pkg: 'event::Global',
+			domain: Type.appdomain,
+			statics: {
+				all: [],
+				_domProxyMap: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+				IEvent: IEvent,
+				/** Safe array iteration with optional reverse order.
+				 *  @param {Array}    arr      The array
+				 *  @param {Function} closure  Callback: fn(element, index, array)
+				 *  @param {boolean}  [reversed] Iterate backwards if true */
+				loop: function (arr, closure, reversed) {
+
+					var l = arr.length;
+
+					if (!!reversed) {
+
+						for (; l--;) {
+							var p = arr[l];
+							try {
+								closure.apply(p, [p, l, arr]);
+							} catch (e) {
+								throw e;
 							}
 						}
-						
-					}else{
-					
-						for(var i = 0 ; i < l ; i++){
-							var p = arr[i] ;
-							try{
-								closure.apply(p, [p, i, arr]) ;
-							}catch(e){
-								trace(e) ;
+
+					} else {
+
+						for (var i = 0; i < l; i++) {
+							var p = arr[i];
+							try {
+								closure.apply(p, [p, i, arr]);
+							} catch (e) {
+								throw e;
 							}
 						}
-					
+
 					}
 				},
-				_addHandler:function(tg, ind, type, closure){
-					return Global._registerHandler(tg, true, ind, type, closure) ;
+				/** Add a listener handler to a target.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string} type
+				 *  @param {Function} closure */
+				_addHandler: function (tg, type, closure) {
+					(tg._listeners[type] = tg._listeners[type] || []).push(closure);
 				},
-				_removeHandler:function(tg, ind, type, closure){
-					return Global._registerHandler(tg, false, ind, type, closure) ;
-				},
-				_registerHandler:function(tg, cond, ind, type, closure){
-					
-					var handlers = tg._handlers ;
-					if(cond){
-						
-						handlers[handlers.length] = {ind:ind, type:type, closure:closure, target:tg} ;
-						
-						return true ;
-						
-					}else{
-						
-						var typeind = 0 , handler;
-						var i = (function(){
-							var n = -1 ;
-							var l = handlers.length ;
-							for(; l-- ; ){
-								var h = handlers[l] ;
-								if(!!!h) continue ;
-								if(h.ind == ind) typeind++ ;
-								if(h.closure === closure && h.ind == ind) handler = h, n = l ;
-							}
-							return n ;
-						})() ;
-						
-						if(i == -1)
-							throw new Error('EventDispatcher target not registered with type : "'+ type +'" and closure : ' + closure + '.' )
-						
-						delete handler.closure ;
-						delete handler.type ;
-						delete handler.ind ;
-						delete handlers[i] ;
-						
-						handlers.splice(i, 1) ;
-						
-						return typeind < 2 ;
-						
+				/** Remove a listener handler from a target.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string} type
+				 *  @param {Function} closure */
+				_removeHandler: function (tg, type, closure) {
+					var list = tg._listeners[type];
+					if (list) {
+						var i = list.indexOf(closure);
+						if (i !== -1) list.splice(i, 1);
 					}
 				},
-				_registerDispatcher:function(tg, cond, dispatcher){
-					
-					var dispatchers = tg._dispatchers ;
-					var i = ArrayUtil.indexOf(dispatchers, dispatcher) ;
-					
-					if(cond){
-						
-						if(i == -1 && dispatcher !== tg) {
+				/** Register or unregister a dispatcher on a target.
+				 *  @param {EventDispatcher} tg         Target
+				 *  @param {boolean}        cond       True = add, false = remove
+				 *  @param {EventDispatcher} [dispatcher]
+				 *  @return {boolean} Whether the operation succeeded */
+				_registerDispatcher: function (tg, cond, dispatcher) {
+
+					var dispatchers = tg._dispatchers;
+					var i = ArrayUtil.indexOf(dispatchers, dispatcher);
+
+					if (cond) {
+
+						if (i == -1 && dispatcher !== tg) {
 							// Dispatcher added
-							dispatchers[dispatchers.length] = dispatcher ;
-							
+							dispatchers[dispatchers.length] = dispatcher;
+
 							// Proxy should register target in dispatcher's proxies list
-							Global._addProxy(dispatcher, tg) ;
+							Global._addProxy(dispatcher, tg);
 						}
-						
-						return true ;
-						
-					}else{
-					
-						if(!!dispatcher){
-							
-							if(i !== -1){
+
+						return true;
+
+					} else {
+
+						if (!!dispatcher) {
+
+							if (i !== -1) {
 								// dispatcher removed
-								dispatchers.splice(i, 1) ;
-								
+								dispatchers.splice(i, 1);
+
 								// Proxy should also be removed from dispatcher's proxies list
-								Global._removeProxy(dispatcher, tg) ;
-								
-								return true ;
+								Global._removeProxy(dispatcher, tg);
+
+								return true;
 							}
-							
-						}else{
-							
-							Global.loop(tg._dispatchers, function(el, i, arr){
-								
-								Global._removeDispatcher(tg, el) ;
-								
-							}, true) ;
-							
-							return true ;
+
+						} else {
+
+							Global.loop(tg._dispatchers, function (el, i, arr) {
+
+								Global._removeDispatcher(tg, el);
+
+							}, true);
+
+							return true;
 						}
-						return false ;
+						return false;
 					}
 				},
-				_addDispatcher:function(tg, dispatcher){
+				/** Convenience: add a dispatcher.
+				 *  @param {EventDispatcher} tg
+				 *  @param {EventDispatcher} dispatcher
+				 *  @return {boolean} */
+				_addDispatcher: function (tg, dispatcher) {
 					return Global._registerDispatcher(tg, true, dispatcher)
 				},
-				_removeDispatcher:function(tg, dispatcher){
+				/** Convenience: remove a dispatcher.
+				 *  @param {EventDispatcher} tg
+				 *  @param {EventDispatcher} [dispatcher]
+				 *  @return {boolean} */
+				_removeDispatcher: function (tg, dispatcher) {
 					return Global._registerDispatcher(tg, false, dispatcher)
 				},
-				_registerProxy:function(tg, cond, proxy, force){
-					
-					var proxies = tg._proxies ;
-					
-					var i = ArrayUtil.indexOf(proxies, proxy) ;
+				/** Register or unregister a proxy on a target.
+				 *  @param {EventDispatcher} tg    Target
+				 *  @param {boolean}        cond  True = add, false = remove
+				 *  @param {EventDispatcher} proxy
+				 *  @param {boolean}        [force] Allow self-proxy */
+				_registerProxy: function (tg, cond, proxy, force) {
+
+					var proxies = tg._proxies;
+
+					var i = ArrayUtil.indexOf(proxies, proxy);
 					// not sure of that, we'll see
-					if(tg === proxy && !!!force) return ;
-					
-					if(cond){
-						if(i == -1) {
-							proxies[proxies.length] = proxy ;
+					if (tg === proxy && !!!force) return;
+
+					if (cond) {
+						if (i == -1) {
+							proxies[proxies.length] = proxy;
 						}
-					}else{
-						if(i != -1) {
-							proxies.splice(i, 1) ;
+					} else {
+						if (i != -1) {
+							proxies.splice(i, 1);
 						}
 					}
-					
+
 				},
-				_addProxy:function(tg, proxy, force){
-					return Global._registerProxy(tg, true, proxy, force) ;
+				/** Convenience: add a proxy.
+				 *  @param {EventDispatcher} tg
+				 *  @param {EventDispatcher} proxy
+				 *  @param {boolean}        [force]
+				 *  @return {boolean} */
+				_addProxy: function (tg, proxy, force) {
+					return Global._registerProxy(tg, true, proxy, force);
 				},
-				_removeProxy:function(tg, proxy, force){
-					return Global._registerProxy(tg, false, proxy, force) ;
+				/** Convenience: remove a proxy.
+				 *  @param {EventDispatcher} tg
+				 *  @param {EventDispatcher} [proxy]
+				 *  @param {boolean}        [force]
+				 *  @return {boolean} */
+				_removeProxy: function (tg, proxy, force) {
+					return Global._registerProxy(tg, false, proxy, force);
 				},
-				retrieveModelProxy:function(p){
-					var s ;
-					Global.loop(Global.all, function(el, i, arr){
-						if(el._globalTarget === p) {
-							s = el ;
-						}
-					}) ;
-					return s ;
+				/** Look up a cached DOM proxy model.
+				 *  @param {Object} p DOM element or window
+				 *  @return {EventDispatcher|undefined} */
+				retrieveModelProxy: function (p) {
+					return Global._domProxyMap.get(p);
 				},
-				generateDomProxyAlongTarget:function(p){
-					
-					var model = Global.retrieveModelProxy(p) ;
-					
-					if(!!! model){
-						
-						model = Global.all[Global.all.length] = new EventDispatcher() ;
-						model.isGlobal = true ;
-						model._globalTarget = p ;
-						model.setDispatcher(p) ;
-						
+				/** Create (or reuse) an EventDispatcher model for a DOM element,
+				 *  then return a proxied child dispatcher.
+				 *  @param {Object} p Native DOM element/window
+				 *  @return {EventDispatcher} */
+				generateDomProxyAlongTarget: function (p) {
+
+					var model = Global.retrieveModelProxy(p);
+
+					if (!!!model) {
+
+						model = Global.all[Global.all.length] = new EventDispatcher();
+						model.isGlobal = true;
+						model._globalTarget = p;
+						model.setDispatcher(p);
+
 					}
-					
-					
-					var s = new EventDispatcher() ;
-					s.isProxied = true ;
-					s.setDispatcher(model) ;
-					
-					return s ;
+
+					var s = new EventDispatcher();
+					s.isProxied = true;
+					s.setDispatcher(model);
+
+					return s;
 				},
-				teardown:function(tg, model){
-					Global.loop([].concat(tg._handlers), function(h){
-						DOMEventDispatcher.prototype.unbind.apply(model, [h.type, h.closure]) ;
-					})
-					Global.loop([].concat(tg._proxies), function(p){
-						Global.teardown(p, model) ;
-					})
-				},
-				setup:function(tg, model){
-					Global.loop([].concat(tg._handlers), function(h){
-						DOMEventDispatcher.prototype.bind.apply(model, [h.type, h.closure]) ;
-					})
-					Global.loop([].concat(tg._proxies), function(p){
-						Global.setup(p, model) ;
+				/** Unbind all DOM listeners for a target and its proxy tree.
+				 *  @param {EventDispatcher} tg
+				 *  @param {DOMEventDispatcher} model */
+				teardown: function (tg, model) {
+					for (var type in tg._listeners) {
+						var list = tg._listeners[type];
+						for (var i = 0; i < list.length; i++)
+							DOMEventDispatcher.prototype.unbind.apply(model, [type, list[i]]);
+					}
+					Global.loop([].concat(tg._proxies), function (p) {
+						Global.teardown(p, model);
 					})
 				},
-				setDispatcher:function(tg, proxy){
+				/** Bind all DOM listeners for a target and its proxy tree.
+				 *  @param {EventDispatcher} tg
+				 *  @param {DOMEventDispatcher} model */
+				setup: function (tg, model) {
+					for (var type in tg._listeners) {
+						var list = tg._listeners[type];
+						for (var i = 0; i < list.length; i++)
+							DOMEventDispatcher.prototype.bind.apply(model, [type, list[i]]);
+					}
+					Global.loop([].concat(tg._proxies), function (p) {
+						Global.setup(p, model);
+					})
+				},
+				/** Set or unset the native DOM dispatcher for a target.
+				 *  When proxy === undefined or === tg, the current dispatcher is torn down.
+				 *  @param {EventDispatcher}  tg
+				 *  @param {EventDispatcher|Object} [proxy] */
+				setDispatcher: function (tg, proxy) {
 					// if proxy comes undefined, means we want to erase behaviour,
 					// but if comes with original 'this', we also want to erase proxy behaviour
-					var hadEvents ;
-					if(proxy === undefined || proxy === tg || (!! tg._dispatchers && tg._dispatchers.length)) {
+					var hadEvents;
+					if (proxy === undefined || proxy === tg || (!!tg._dispatchers && tg._dispatchers.length)) {
 						// unset(last)
-						var top = Global.getTopDispatcher(tg) ;
-						
-						if(top.isProxied) {
-							
-							Global.teardown(tg, top._dispatchers[0]) ;
-							
-							if(top === tg) tg.isProxied = false ;
-							
+						var top = Global.getTopDispatcher(tg);
+
+						if (top.isProxied) {
+
+							Global.teardown(tg, top._dispatchers[0]);
+
+							if (top === tg) tg.isProxied = false;
+
 						}
-						
-						Global._removeDispatcher(tg) ;
+
+						Global._removeDispatcher(tg);
 					}
-					
-					if(!! proxy && proxy !== tg){ 
+
+					if (!!proxy && proxy !== tg) {
 						// else just add 
-						
-						if( tg.isGlobal ) return ;
-						
-						
+
+						if (tg.isGlobal) return;
+
+
 						// hack-setting if object is a Global model, doesn't have to go thru this
-						if(  tg.isProxied ) return Global._addDispatcher(tg, proxy) ;
-						
-						if(!Type.is(proxy, EventDispatcher)){
-							proxy = Global.generateDomProxyAlongTarget(proxy) ;
+						if (tg.isProxied) return Global._addDispatcher(tg, proxy);
+
+						if (!Type.is(proxy, EventDispatcher)) {
+							proxy = Global.generateDomProxyAlongTarget(proxy);
 						}
-						
-						var top = Global.getTopDispatcher(proxy) ;
-						if(top.isProxied){
-							
-							Global.setup(tg, top._dispatchers[0]) ;
-							
+
+						var top = Global.getTopDispatcher(proxy);
+						if (top.isProxied) {
+
+							Global.setup(tg, top._dispatchers[0]);
+
 						}
-						
-						Global._addDispatcher(tg, top) ;
-					
+
+						Global._addDispatcher(tg, top);
+
 					}
 				},
-				addEventType:function(type){
-					var ind = Global.evtypeindex == 0 ? (Global.evtypeindex+=1) : (Global.evtypeindex <<= 1) ;
-					Global.events[type] = ind ;
-					
-					return ind ;
-				},
-				checkEventType:function(cond, type){
-					var ind
-					if(type in Global.events) return Global.events[type] ;
-					else {
-						if(cond) return Global.addEventType(type) ;
-						else throw new Error('cannot remove event : Event "' + type + '" is not registered') ;
-					}
-					return ind ;
-				},
-				bind:function(tg, type, closure){
-					
-					var ind = Global.checkEventType(true, type) ;
-					var top = Global.getTopDispatcher(tg) ;
-					
-					if(top.isProxied){
-						if(!! top._dispatchers && top._dispatchers.length && tg._dispatchers[0] instanceof DOMEventDispatcher){
-							var model = top._dispatchers[0] ;
+					/** Register a listener. If proxied and has a native DOM dispatcher, also bind at DOM level.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string}   type
+				 *  @param {Function} closure
+				 *  @return {EventDispatcher} tg */
+				bind: function (tg, type, closure) {
+
+					var top = Global.getTopDispatcher(tg);
+
+					if (top.isProxied) {
+						if (!!top._dispatchers && top._dispatchers.length && tg._dispatchers[0] instanceof DOMEventDispatcher) {
+							var model = top._dispatchers[0];
 							DOMEventDispatcher.prototype.bind.apply(model, [type, closure])
 						}
 					}
-					
-					Global.registerFlag(tg, true, ind, closure, type) ;
-					
-					return tg ;
+
+					Global._addHandler(tg, type, closure);
+
+					return tg;
 				},
-				unbind:function(tg, type, closure){
-					
-					var ind ;
-					try{
-						ind = Global.checkEventType(false, type) ;
-					}catch(e){
-						// trace(e) ;
-						return ;
-					}
-					var top = Global.getTopDispatcher(tg) ;
-					
-					if(top.isProxied){
-						if(!! top._dispatchers && top._dispatchers.length && tg._dispatchers[0] instanceof DOMEventDispatcher){
-							var model = top._dispatchers[0] ;
-							DOMEventDispatcher.prototype.unbind.apply(model, [type, closure]) ;
+				/** Unregister a listener. If proxied with native DOM dispatcher, also unbind at DOM level.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string}   type
+				 *  @param {Function} closure
+				 *  @return {EventDispatcher} tg */
+				unbind: function (tg, type, closure) {
+
+					var top = Global.getTopDispatcher(tg);
+
+					if (top.isProxied) {
+						if (!!top._dispatchers && top._dispatchers.length && tg._dispatchers[0] instanceof DOMEventDispatcher) {
+							var model = top._dispatchers[0];
+							DOMEventDispatcher.prototype.unbind.apply(model, [type, closure]);
 						}
 					}
-					
-					Global.registerFlag(tg, false, ind, closure, type) ;
-					
-					return tg ;
+
+					Global._removeHandler(tg, type, closure);
+
+					return tg;
 				},
-				registerFlag:function(tg, cond, ind, closure, type){
-					
-					var allowed = true ;
-					if(!! closure ){
-						allowed = (cond) ? Global._addHandler(tg, ind, type, closure) : Global._removeHandler(tg, ind, type, closure) ;
-						if(cond) {
-							tg._flag |= ind ;
-						}else{
-							if(allowed){
-								tg._flag &= ~ind ;
-							}
-						}
-					}
+				/** Check if a target has immediate listeners for an event.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string|IEvent} e
+				 *  @return {boolean} */
+				willTriggerNow: function (tg, e) {
+					var type = 'string' === typeof e ? e : e.type;
+					return !!(tg._listeners && tg._listeners[type] && tg._listeners[type].length);
 				},
-				willTriggerNow:function(tg, e, resultAsArr){
-					e = Global.format(e) ;
-					var cond = (e & tg._flag) != 0 ;
-					return cond ;
-				},
-				hasTriggeringProxies:function(tg, e){
-					var cond = false ;
-					
-					Global.loop(tg._proxies, function(p, i, arr){
-						cond = cond || Global.hasTriggeringProxies(p, e) ;
+				/** Recursively check if a target or any of its proxies has listeners.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string|IEvent} e
+				 *  @return {boolean} */
+				hasTriggeringProxies: function (tg, e) {
+					var cond = false;
+
+					Global.loop(tg._proxies, function (p, i, arr) {
+						cond = cond || Global.hasTriggeringProxies(p, e);
 					})
-					
-					cond = cond || Global.willTriggerNow(tg, e) ;
-					
-					return cond ;
+
+					cond = cond || Global.willTriggerNow(tg, e);
+
+					return cond;
 				},
-				getTopDispatcher:function(tg){
-				
-					if(tg.isProxied){
-						
-						return tg ;
-						
-					}else if(!!tg._dispatchers && tg._dispatchers.length){
-					
-						// !!! has to be safe with no DOM EventDispatcher case
-						tg = Global.getTopDispatcher(tg._dispatchers[0]) ;
-						
+				/** Walk the dispatcher chain to find the topmost proxy or dispatcher.
+				 *  @param {EventDispatcher} tg
+				 *  @return {EventDispatcher} */
+				getTopDispatcher: function (tg) {
+
+					if (tg.isProxied) {
+
+						return tg;
+
+					} else if (!!tg._dispatchers && tg._dispatchers.length) {
+
+						tg = Global.getTopDispatcher(tg._dispatchers[0]);
+
 					}
-					
-					return tg ;
+
+					return tg;
 				},
-				willTrigger:function(tg, e, withDispatcher, top){
-					
-					e = Global.format(e) ;
-					var cond = false ;
-					
-					var top = top || Global.getTopDispatcher(tg) ;
-					
-					if(top.isProxied) return withDispatcher ? {dispatcher:top, cond:true} : true ;
-						
-					Global.loop(top._proxies, function(p, i, arr){
-						
-						cond = cond || Global.hasTriggeringProxies(p, e) ;
-						
-					}) ;
-					
-					cond = cond || Global.willTriggerNow(tg, e) ;
-				
-					
-					if(withDispatcher === true) return {dispatcher:top, cond:cond} ;
-					
-					return cond ;
+				/** Check if an event will be handled anywhere in the proxy tree.
+				 *  @param {EventDispatcher}    tg
+				 *  @param {string|IEvent}      e
+				 *  @param {boolean}            [withDispatcher] Return { dispatcher, cond } if true
+				 *  @param {EventDispatcher}    [top] Internal — cached top dispatcher
+				 *  @return {boolean|Object} */
+				willTrigger: function (tg, e, withDispatcher, top) {
+
+					e = 'string' === typeof e ? e : e.type;
+					var cond = false;
+
+					var top = top || Global.getTopDispatcher(tg);
+
+					if (top.isProxied) return withDispatcher ? { dispatcher: top, cond: true } : true;
+
+					Global.loop(top._proxies, function (p, i, arr) {
+
+						cond = cond || Global.hasTriggeringProxies(p, e);
+
+					});
+
+					cond = cond || Global.willTriggerNow(tg, e);
+
+
+					if (withDispatcher === true) return { dispatcher: top, cond: cond };
+
+					return cond;
 				},
-				fire:function(tg, e){
-					var handlers = [].concat(tg._handlers) ;
-					Global.loop(handlers, function(h, j, handlers){
-						if(!!!h) return ;
-						if(h.type == e && tg.willTriggerNow(e))
-							(h.closure.apply(tg, [new Global.IEvent({target:h.target, type:e, currentTarget:tg})])) ;
-					})
-					
-				},
-				checkBeforeTrigger:function(tg, e, force){
-					
-					
-					var obj = !! force ? force : Global.willTrigger(tg, e, true) ;
-					
-					if(obj.cond){
-						Global.trigger(obj.dispatcher, e) ;
+				/** Synchronously invoke all listeners for an event on a target.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string|IEvent} e */
+				fire: function (tg, e) {
+					e = 'string' === typeof e ? e : e.type;
+					var list = tg._listeners && tg._listeners[e];
+					if (list) {
+						list.slice().forEach(function (closure) {
+							closure.apply(tg, [new Global.IEvent({ target: tg, type: e, currentTarget: tg })]);
+						});
 					}
-					
 				},
-				isNativeEventDispatcher:function(tg){
-					return (!! tg.fireEvent || !! tg.dispatchEvent) ;
+				/** Check if the event will be handled and trigger if so.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string|IEvent} e
+				 *  @param {Object} [force] Precomputed { dispatcher, cond } object */
+				checkBeforeTrigger: function (tg, e, force) {
+
+
+					var obj = !!force ? force : Global.willTrigger(tg, e, true);
+
+					if (obj.cond) {
+						Global.trigger(obj.dispatcher, e);
+					}
+
 				},
-				trigger:function(tg, e){
-					
-					if( tg.isProxied ){
-						
-						var model = tg._dispatchers[0] ;
-						
-						if(Global.isNativeEventDispatcher(model._globalTarget)) {
-							
-							DOMEventDispatcher.prototype.trigger.apply(model, [e]) ;
-							
-						}else if(!!model._globalTarget.jquery){
-							model._globalTarget.trigger(e) ;
-						}else{
-							
-							Global.loop([].concat(model._proxies), function(p){
-								Global.triggerDown(p, e) ;
+				/** Test whether an object supports native DOM event dispatch.
+				 *  @param {Object} tg
+				 *  @return {boolean} */
+				isNativeEventDispatcher: function (tg) {
+					return (!!tg.fireEvent || !!tg.dispatchEvent);
+				},
+				/** Dispatch a synthetic or native event through the proxy hierarchy
+				 *  or directly to the DOM.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string|IEvent} e */
+				trigger: function (tg, e) {
+
+					if (tg.isProxied) {
+
+						var model = tg._dispatchers[0];
+
+						if (Global.isNativeEventDispatcher(model._globalTarget)) {
+
+							DOMEventDispatcher.prototype.trigger.apply(model, [e]);
+
+						} else if (!!model._globalTarget.jquery) {
+							model._globalTarget.trigger(e);
+						} else {
+
+							Global.loop([].concat(model._proxies), function (p) {
+								Global.triggerDown(p, e);
 							})
-							
+
 						}
-						
-					}else{
-						Global.triggerDown(tg, e) ;
-						
+
+					} else {
+						Global.triggerDown(tg, e);
+
 					}
-					
+
 				},
-				triggerDown:function(tg, e){
-					if(Global.willTriggerNow(tg, e)) Global.fire(tg, e) ;
-					
-					if(!! tg._proxies && tg._proxies.length)
-						Global.loop([].concat(tg._proxies), function(p, i, arr){
-							
-							if(!!!p || !!! p._proxies ) return ; 
-							if(Global.willTriggerNow(p, e)) Global.triggerDown(p, e) ;
-							
-						}) ;
-					
-				},
-				format:function(e){
-					if('string' === typeof e) return Global.events[e] ;
-					if(e instanceof Global.IEvent) return Global.events[e.type] ;
-					return e ;
+				/** Walk down the proxy tree, firing events on each target that has listeners.
+				 *  @param {EventDispatcher} tg
+				 *  @param {string|IEvent} e */
+				triggerDown: function (tg, e) {
+					if (Global.willTriggerNow(tg, e)) Global.fire(tg, e);
+
+					if (!!tg._proxies && tg._proxies.length)
+						Global.loop([].concat(tg._proxies), function (p, i, arr) {
+
+							if (!!!p || !!!p._proxies) return;
+							if (Global.willTriggerNow(p, e)) Global.triggerDown(p, e);
+
+						});
+
 				}
 			}
-		}) ;
-		
-		/* COMMANDS */
+		});
+
+		/* COMMANDS — executable action wrappers and sequential queue */
+
+		/** @class Command
+		 *  @extends EventDispatcher
+		 *  Wraps a closure with context and parameters. Execution returns `this` (truthy)
+		 *  if the closure completed synchronously, or falsy if the command is async
+		 *  (in which case the caller waits for the `depth` event). */
 		var Command = Type.define({
-			pkg:'command',
-			inherits:EventDispatcher,
-			domain:Type.appdomain,
-			constructor:Command = function Command(thisObj, closure, params) {
-				Command.base.apply(this, []) ;
+			pkg: 'command',
+			inherits: EventDispatcher,
+			domain: Type.appdomain,
+			/** @param {Object}   thisObj The `this` context for the closure
+			 *  @param {Function} closure The action to execute
+			 *  @param {...*}     [params] Extra arguments passed to the closure */
+			constructor: Command = function Command(thisObj, closure, params) {
+				Command.base.apply(this, []);
 
-				var args = ArrayUtil.argsToArray(arguments) ;
-				this.context = args.shift() ;
-				this.closure = args.shift() ;
-				this.params = args ;
-				this.depth = '$' ;
+				var args = ArrayUtil.argsToArray(arguments);
+				this.context = args.shift();
+				this.closure = args.shift();
+				this.params = args;
+				this.depth = '$';
 
-				return this ;
-			},
-			execute : function(){
-				var r = this.closure.apply(this, [].concat(this.params)) ;
-				if(!!r) {
-					return this ;
-				}
-			},
-			dispatchComplete : function(){
-				this.trigger(this.depth) ;
-			},
-			cancel:function(){
-				return this.destroy() ;
-			},
-			destroy : function(){
-				for(var s in this)
-					delete this[s] ;
-
-				return Command.factory.destroy.call(this) ;
-			}
-		}) ;
-		var CommandQueue = Type.define({
-			pkg:'command',
-			inherits:Command,
-			domain:Type.appdomain,
-			constructor : function CommandQueue() {
-				
-				Command.base.apply(this, []) ;
-				
-				this.commands = arguments.length ? ArrayUtil.argsToArray(arguments) : [] ;
-				this.commandIndex = -1 ;
-				this.depth = '$' ;
-				
-				
-				
-				var cq = this ;
-
-				this.add = function add(){
-					var args = arguments ;
-					var l = args.length ;
-					switch(l)
-					{
-						case 0:
-							throw new Error('cannot add an null object, ...commandQueue') ;
-						break;
-						case 1:
-							var arg = args[0] ;
-							if(Type.is(arg, Command)) cq.commands[cq.commands.length] = arg ;
-							else // must be an array of commands
-								if(Type.is(arg, Array)) add.apply(null, arg) ;
-						break;
-						default :
-							for(var i = 0 ; i < l ; i++ ) add(args[i]) ;
-						break;
-					}
-				}
-
-				// if(commands.length > 0 ) this.add(commands) ;
-
-				return this ;
-			},
-			reset : function(){
-				if(this.commands.length){
-					var commands = this.commands ;
-					var l = commands.length ;
-					for (;l--;) {
-						var comm = commands[l];
-						if(Type.is(comm, CommandQueue)) comm.commandIndex = -1 ;
-					}
-				}
-				this.commandIndex = -1 ;
-				return this ;
-			},
-			next : function(){
-				var cq = this ;
-				var ind = this.commandIndex ;
-				ind ++ ;
-				
-				var c = this.commands[ind] ;
-				if(!!!c){
-					trace('commandQueue did not found command and will return, since command stack is empty...') ;
-					setTimeout(function(){cq.dispatchComplete()}, 0) ; 
-					return this ;
-				}
-
-				c.depth = this.depth + '$' ;
-
-				var r = c.execute() ;
-
-				if(!!!r){
-					this.commandIndex = ind ;
-				if(ind == this.commands.length - 1){
-					this.dispatchComplete() ;
-				}else{
-					this.next() ;
-				}
-				}else{
-					var type = c.depth ;
-					var rrr ;
-					r.bind(type, rrr = function(){
-						r.unbind(type, rrr) ;
-						cq.commandIndex = ind ;
-						ind == cq.commands.length - 1
-							? cq.dispatchComplete() 
-							: cq.next() ;
-					})
-				}
-				
-				return this ;
-			},
-			execute : function(){
-				return this.next() ;
-			},
-			cancel:function(){
-				return this.destroy() ;
-			},
-			destroy : function(){
-				// trace('destroying', this)
-				if(!!this.commands){
-					var commands = this.commands ;
-					var l = commands.length ;
-					for (;l--;)
-						commands.pop().destroy() ;
-				}
-				delete this.add ;
-				delete this.commands ; 
-				delete this.commandIndex ; 
-				
-				return CommandQueue.factory.destroy.call(this) ;
-			}
-		}) ;
-		var WaitCommand = Type.define({
-			pkg:'command',
-			inherits:Command,
-			domain:Type.appdomain,
-			constructor:WaitCommand = function WaitCommand(time, initclosure) {
-				WaitCommand.base.call(this) ;
-
-				this.time = time ;
-				this.depth = '$' ;
-				this.uid = -1 ;
-				this.initclosure = initclosure ;
-
-				return this ;
-			},
-			execute:function(){
-				var w = this ;
-				
-				if(!! w.initclosure) {
-					var co = new Command(w, w.initclosure) ;
-					var o = co.execute() ;
-					var rrr ;
-					if(!! o ){
-						co.bind('$', rrr = function(e){
-							co.unbind('$', rrr) ;
-							this.uid = setTimeout(function(){
-								w.dispatchComplete() ;
-								this.uid = -1 ;
-							}, this.time) ;
-						}) ;
-					}else{
-						this.uid = setTimeout(function(){
-							w.dispatchComplete() ;
-							this.uid = -1 ;
-						}, this.time) ;
-					}
-				}else{
-					this.uid = setTimeout(function(){
-						w.dispatchComplete() ;
-						this.uid = -1 ;
-					}, this.time) ;
-				}
-
-				return this ;
-			},
-			cancel:function(){
-				return this.destroy() ;
-			},
-			destroy:function(){
-
-				if(this.uid !== -1){
-					clearTimeout(this.uid) ;
-				}
-				delete this.uid ;
-				delete this.time ;
-				delete this.initclosure ;
-				
-				return WaitCommand.factory.destroy.call(this) ;
-			}
-		}) ;
-		var AjaxCommand = Type.define({
-			pkg:'command',
-			inherits:Command,
-			domain:Type.appdomain,
-			constructor:AjaxCommand = function AjaxCommand(url, success, postData, init) {
-				if(postData === null) postData = undefined ;
-
-				AjaxCommand.base.call(this) ;
-
-				this.url = url ;
-				this.success = success ;
-				this.postData = postData ;
-				this.depth = '$' ;
-				
-				this.initclosure = init ;
-				
-				return this ;
-			},
-			execute : function(){
-				var w = this ;
-				if(!! w.request && !! w.success ) return w.success.apply(w, [w.jxhr, w.request]) ;
-				w.request = new AjaxRequest(w.url, function(jxhr, r){
-					w.jxhr = jxhr ;
-					if(!! w.success )w.success.apply(w, [jxhr, r]) ;
-				}, w.postData) ;
-
-				if(!! w.initclosure ) w.initclosure.apply(w, [w.request]) ;
-				if(!! w.toCancel ) {
-					setTimeout(function(){
-						w.dispatchComplete() ;
-					}, 10) ;
-					return w;
-				}
-				setTimeout(function(){w.request.load()}, 0) ;
-				
-				return this ;
-			},
-			cancel:function(){
-				return this.destroy() ;
-			},
-			destroy : function(){
-				if(!!this.request) this.request = this.request.destroy() ;
-				
-				delete this.request ;
-				delete this.url ;
-				delete this.success ;
-				delete this.postData ;
-				delete this.initclosure ;
-				
-				return AjaxCommand.factory.destroy.call(this) ;
-			}
-		}) ;
-	
-	
-		// COLLECTIONS
-
-		// CYCLIC
-		var Cyclic = Type.define({
-			pkg:'collection',
-			domain:Type.appdomain,
-			constructor:Cyclic = function Cyclic(arr){
-				var cy = this ;
-				var commands = cy.commands = [] ;
-				cy.index = -1 ;
-				cy.looping = true ;
-				cy.deferred = false ;
-				
-				if(!! arr && arr.length > 0){
-					this.add.apply(this, arr) ;
-				}
-				return this ;
-			},
-			add:function(){
-			   var cy = this ;
-			   var l ;
-			   var commands = cy.commands ;
-			   var args = [].slice.call(arguments) ;
-			   var len = args.length ;
-			   for(var i = 0 ; i < len ; i++){
-				  var arg = args[i] ;
-				  if(arg[0] !== undefined && Type.is(arg[0], Command)){
-					 l = cy.push.apply(cy, arg) ;
-				  }else{
-					 l = cy.push.apply(cy, [arg]) ;
-				  }
-			   }
-			   return l ;
-			},
-			remove:function(){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   var args = [].slice.call(arguments) ;
-			   var len = args.length ;
-			   for(var i = 0 ; i < len ; i++){
-				  var arg = args[i] ;
-				  if(isNaN(arg) && Type.is(arg, Command)){
-					 var n = cy.indexOf(arg) ;
-					 cy.splice(n, 1) ;
-				  }else{
-					 cy.splice(arg, 1) ;
-				  }
-			   }
-			   var l = commands.length ;
-			   return l ;
-			},
-			indexOf:function(el){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   
-			   if(Array.prototype['indexOf'] !== undefined){
-				  return commands.indexOf(el) ;
-			   }else{
-				  var l = commands.length ;
-				  for(var i = 0 ; i < l ; i++){
-					 if(commands[i] === el) return i ;
-				  }
-			   }
-			   return -1 ;
-			},
-			splice:function(){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   var r = commands.splice.apply(commands, [].slice.call(arguments)) ;
-			   var l = commands.length ;
-			   var div = 1/l ;
-			   cy.unit = {index:div, deg:div * 360, rad:div * Math.PI * 2} ;
-			   return r ;
-			},
-			push:function(){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   var l = commands.push.apply(commands, [].slice.call(arguments)) ;
-			   var div = 1/l ;
-			   cy.unit = {index:div, deg:div * 360, rad:div * Math.PI * 2} ;
-			   return l ;
-			},
-			unshift:function(){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   var l = commands.unshift.apply(commands, [].slice.call(arguments)) ;
-			   var div = 1/l ;
-			   cy.unit = {index:div, deg:div * 360, rad:div * Math.PI * 2} ;
-			   return l ;
-			},
-			pop:function(){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   var command = commands.pop() ;
-			   var l = commands.length ;
-			   var div = 1/l ;
-			   cy.unit = {index:div, deg:div * 360, rad:div * Math.PI * 2} ;
-			   return command ;
-			},
-			shift:function(){
-			   var cy = this ;
-			   var commands = cy.commands ;
-			   var command = commands.shift() ;
-			   var l = commands.length ;
-			   var div = 1/l ;
-			   cy.unit = {index:div, deg:div * 360, rad:div * Math.PI * 2} ;
-			   return command ;
-			},
-			getPrev:function(n){
-			   var cy = this ;
-			   if(n === undefined) n = 1 ;
-			   
-			   n = -n ;
-			   
-			   var neo = (cy.index * cy.unit.rad) + (n * cy.unit.rad) ;
-			   
-			   if(cy.looping !== true){
-					if(cy.index <= 0)
-						return {index:-1} ;
-			   }else{
-					neo = neo % (Math.PI * 2) ;
-			   }
-			   
-			   var s = this.seek(neo) ;
-			   s.dif = n ;
-			   return s ;
-			},
-			prev:function(n){
-			   var cy = this ;
-			   
-			   cy.ascend = !Boolean(n === undefined || n > 0) ;
-			   
-			   var item = cy.getPrev(n) ;
-			   var ind = item.index ;
-			   
-			   if(ind == -1) {
-					return false ;
-			   }
-			   
-			   cy.increment = item.dif ;
-			   var c = cy.commands[ind].execute() ;
-			   
-			   cy.index = ind ;
-			   return c ;
-			},
-			getNext:function(n){
-			   var cy = this ;
-			   
-			   if(n === undefined) n = 1 ;
-				
-				
-			   var neo = (cy.index * cy.unit.rad) + (n * cy.unit.rad) ;
-			   
-			   var l = cy.commands.length ;
-			   if(cy.looping !== true){
-					if(cy.index >= l - 1)
-						return {index:-1} ;
-				}else{
-					neo = neo % (Math.PI * 2) ;
-			   }
-			   var s = this.seek(neo) ;
-			   s.dif = n ;
-			   return s ;
-			},
-			next:function(n){
-			   var cy = this ;
-			   
-			   cy.ascend = Boolean(n === undefined || n > 0) ;
-			   
-			   var item = cy.getNext(n) ;
-			   
-			   var ind = item.index ;
-			   
-			   if(ind == -1) {
-					return false ;
-			   }
-			   
-			   cy.increment = item.dif ;
-			   
-			   var c = cy.commands[ind].execute() ;
-			   cy.index = ind ;
-			   return c ;
-			},
-			getGo:function(n){
-			   var cy = this ;
-			   
-			   if(n === undefined) n = 1 ;
-				
-				
-			   var neo = (n * cy.unit.rad) ;
-			   
-			   var l = cy.commands.length ;
-			   if(cy.looping !== true){
-					if(cy.index >= l - 1)
-						return {index:-1} ;
-				}else{
-					neo = neo % (Math.PI * 2) ;
-			   }
-			   var s = this.seek(neo) ;
-			   s.dif = n ;
-			   return s ;
-			},
-			go:function(n){
-			   var cy = this ;
-			   
-			   cy.ascend = Boolean(n === undefined || n > 0) ;
-			   
-			   var item = cy.getGo(n) ;
-			   
-			   var ind = item.index ;
-			   
-			   if(ind == -1) {
-					return false ;
-			   }
-			   
-			   cy.increment = item.dif ;
-			   
-			   var c = cy.commands[ind].execute() ;
-			   cy.index = ind ;
-			   return c ;
-			},
-			seek:function(rad){ // relative deg (degree) as relative position index in Array
-			   var cy = this ;
-			   var rad, ind ; 
-			   var pi2 = Math.PI * 2 ;
-			   var l = cy.commands.length ;
-			   
-			   if(rad < 0 ){
-				  rad = pi2 + rad ;
-			   }
-			   if(rad > pi2 || pi2 - rad < cy.unit.rad / 2 ){
-				  rad = 0 ;
-			   }
-			   
-			   ind = (rad % pi2) / Math.PI / 2 * l ; // ind is the exact SAFE position in Array, without notions of numerous circles
-			   
-			   return {index: Math.round(ind), rad: rad} ;
-			},
-			size:function(){
-				var cy = this ;
-				return cy.commands.length ;
-			},
-			launch:function(ind){
-				var cy = this ;
-				
-				return cy.next(!!ind ? ind - cy.index : 0)  ;
-			},
-			destroy:function(){
-				var cy = this ;
-				var l = cy.commands.length ;
-				for(var i = 0 ; i < l ; i ++)
-					cy.commands[i] = cy.commands[i].cancel() ;
-				for(var s in cy)
-					delete cy[s] ;
-			}
-
-		}) ;
-
-		/* STEP */
-		var Step = Type.define({
-			pkg:'step',
-			inherits:EventDispatcher,
-			domain:Type.appdomain,
-			statics:{
-				// STATIC VARS
-				hierarchies:{},
-				getHierarchies:function (){ return Step.hierarchies },
-				// STATIC CONSTANTS
-				SEPARATOR:StringUtil.SLASH,
-				STATE_OPENED:"opened",
-				STATE_CLOSED:"closed"
-			},
-			commandOpen:undefined,
-			commandClose:undefined,
-			id:'',
-			path:'',
-			label:undefined,
-			depth:NaN,
-			index:NaN,
-			parentStep:undefined,
-			defaultStep:undefined,
-			ancestor:undefined,
-			hierarchyLinked:false,
-			children:[],
-			opened:false,
-			opening:false,
-			closing:false,
-			playhead:NaN,
-			looping:false,
-			isFinal:false,
-			way:'forward',
-			state:'',
-			userData:undefined,
-			loaded:false,
-			
-			// CTOR
-			constructor:Step = function Step(id, commandOpen, commandClose){
-				Step.base.apply(this, []) ;
-				
-				this.id = id ;
-				this.label = PathUtil.replaceUnderscores(this.id) ;
-				this.children = [] ;
-				this.alphachildren = {} ;
-				this.depth = 0 ;
-				this.index = -1 ;
-				this.playhead = -1 ;
-				this.userData = { } ;
-				this.isFinal = false ;
-				
-				this.settings(commandOpen, commandClose) ;
-			},
-			settings:function(commandOpen, commandClose){
-				var overwritesafe = CodeUtil.overwritesafe ;
-				overwritesafe(this, 'commandOpen', commandOpen) ;
-				overwritesafe(this, 'commandClose', commandClose) ;
-			},
-			reload:function(){
-				var st = this ;
-				var c = st.commandClose ;
-				var $complete ;
-				
-				c.bind('$', $complete = function(e){
-					c.unbind('$', $complete) ;
-					s.open() ;
-				}) ;
-				
-				st.close() ;
-			},
-			open:function(){
-				var st = this ;
-				
-				if( st.opened && !st.closing) throw new Error('currently trying to open an already-opened step ' + st.path + ' ...')
-				st.opening = true ;
-				
-				if (st.isOpenable()) {
-					var o = st.commandOpen.execute() ;
-					st.dispatchOpening() ;
-					
-					if (!!o){
-						if(!Type.is(o, EventDispatcher)) throw new Error('supposed-to-be eventDispatcher is not one...', o) ;
-						var rrr ;
-						o.bind(st.commandOpen.depth, rrr = function(e){
-
-							o.unbind(st.commandOpen.depth, rrr) ;
-							st.checkOpenNDispatch() ;
-							
-						}) ;
-					}else st.checkOpenNDispatch() ;
-				}else st.checkOpenNDispatch() ;
-			},
-			close:function(){
-				var st = this ;
-				if ( !st.opened && !st.opening) throw new Error('currently trying to close a non-opened step ' + st.path + ' ...')
-				st.closing = true ;
-				
-				if (st.isCloseable()) {
-					
-					var o = st.commandClose.execute() ;
-					st.dispatchClosing() ;
-					if (!!o) {
-						 if(!Type.is(o, EventDispatcher)) throw new Error('supposed-to-be eventDispatcher is not one...', o) ;
-						 var rrr ;
-						 o.bind(st.commandClose.depth, rrr = function(e){
-							e.target.unbind(st.commandClose.depth, rrr) ;
-							st.checkCloseNDispatch() ;
-						 }) ;
-					}else st.checkCloseNDispatch() ;
-				}else st.checkCloseNDispatch() ;
-			},
-			checkOpenNDispatch:function(){ this.opened = true ; this.opening = false ; this.dispatchOpen() }, 
-			checkCloseNDispatch:function(){ this.opened = false ; this.closing = false ; this.dispatchClose() },
-			dispatchOpening:function(){ this.trigger('step_opening') },
-			dispatchOpen:function(){ this.trigger('step_open') },
-			dispatchClosing:function(){ this.trigger('step_closing') },
-			dispatchClose:function(){ this.trigger('step_close') },
-			dispatchOpenComplete:function(){ this.trigger(this.commandOpen.depth) },
-			dispatchCloseComplete:function(){ this.trigger(this.commandClose.depth) },
-			dispatchFocusIn:function(){ this.trigger('focusIn') },
-			dispatchFocusOut:function(){ this.trigger('focusOut') },
-			dispatchCleared:function(){ this.trigger('focus_clear') },
-			
-			// DATA DESTROY HANDLING
-			destroy:function(){
-				var st = this ;
-				if (Type.is(st.parentStep, Step) && st.parentStep.hasChild(st)) st.parentStep.remove(st) ;
-				
-				if (st.isOpenable) st.commandOpen = st.destroyCommand(st.commandOpen) ;
-				if (st.isCloseable) st.commandClose = st.destroyCommand(st.commandClose) ;
-				
-				if (!! st.userData ) st.userData = st.destroyObj(st.userData) ;
-				
-				if (st.children.length != 0) st.children = st.destroyChildren() ;
-				if (Type.is(st.ancestor, Step) && st.ancestor == st) {
-					if (st.id in Step.hierarchies) st.unregisterAsAncestor() ;
-				}
-				
-				for(var s in this){
-					delete this[s] ;
-				}
-				
-				return undefined ;
-			},
-			destroyCommand:function(c){ return !! c ? c.destroy() : c },
-			destroyChildren:function(){ if (this.getLength() > 0) this.empty(true) ; return undefined },
-			destroyObj:function(o){
-				for (var s in o) {
-					o[s] = undefined ;
-					delete o[s] ;
-				}
-				return undefined ;
-			},
-			
-			setId:function setId(value){ this.id = value },
-			getId:function getId(){ return this.id},
-			getIndex:function getIndex(){ return this.index},
-			getPath:function getPath(){ return this.path },
-			getDepth:function getDepth(){ return this.depth },
-			// OPEN/CLOSE-TYPE (SELF) CONTROLS
-			isOpenable:function isOpenable(){ return Type.is(this.commandOpen, Command)},
-			isCloseable:function isCloseable(){ return Type.is(this.commandClose, Command)},
-			getCommandOpen:function getCommandOpen(){ return this.commandOpen },
-			setCommandOpen:function setCommandOpen(value){ this.commandOpen = value },
-			getCommandClose:function getCommandClose(){ return this.commandClose },
-			setCommandClose:function setCommandClose(value){ this.commandClose = value },
-			getOpening:function getOpening(){ return this.opening },
-			getClosing:function getClosing(){ return this.closing },
-			getOpened:function getOpened(){ return this.opened },
-			// CHILD/PARENT REFLECT
-			getParentStep:function getParentStep(){ return this.parentStep },
-			getAncestor:function getAncestor(){ return Type.is(this.ancestor, Step) ? this.ancestor : this },
-			getChildren:function getChildren(){ return this.children },
-			getNumChildren:function getNumChildren(){ return this.children.length },
-			getLength:function getLength(){ return this.getNumChildren() },
-			//HIERARCHY REFLECT
-			getHierarchies:function getHierarchies(){ return Step.hierarchies},
-			getHierarchy:function getHierarchy(){ return Step.hierarchies[id] },
-			
-			// PLAY-TYPE (CHILDREN) CONTROLS
-			getPlayhead:function getPlayhead(){ return this.playhead },
-			getLooping:function getLooping(){ return this.looping },
-			setLooping:function setLooping(value){ this.looping = value },
-			getWay:function getWay(){ return this.way },
-			setWay:function setWay(value){ this.way = value },
-			getState:function getState(){ return this.state },
-			setState:function setState(value){ this.state = value },
-			
-			getUserData:function getUserData(){ return this.userData },
-			setUserData:function setUserData(value){ this.userData = value },
-			
-			getLoaded:function getLoaded(){ return this.loaded },
-			setLoaded:function setLoaded(value){ this.loaded = value },
-			getIsFinal:function getIsFinal(){ return this.isFinal },
-			setIsFinal:function setIsFinal(value){ this.isFinal = value },
-			
-			hasChild:function hasChild(ref){
-				if(Type.is(ref, Step))
-					return this.getIndexOfChild(ref) != -1 ;
-				else if (Type.of(ref, 'string'))
-					return ref in this.alphachildren ;
-				else
-					return ref in this.children() ;
-			},
-			getChild:function getChild(ref){
-				var st = this ;
-				if(ref === undefined) ref = null ;
-				var child ;
-				if (ref == null)  // REF IS NOT DEFINED
-					child = st.children[st.children.length - 1] ;
-				else if (Type.is(ref, Step)) { // HERE REF IS A STEP OBJECT
-					child = ref ;
-					if (!st.hasChild(child)) throw new Error('step "'+child.id+'" is not a child of step "'+st.id+'"...') ;
-				}else if (Type.of(ref, 'string')) { // is STRING ID
-					child = st.alphachildren[ref]   ;
-				}else { // is INT ID
-					if(ref == -1) child = st.children[st.children.length - 1] ;
-					else child = st.children[ref] ;
-				}
-				if (! Type.is(child, Step))  throw new Error('step "' + ref + '" was not found in step "' + st.id + '"...') ;
-				
-				return child ;
-			},
-			add:function add(child, childId){
-				var st = this ;
-				if(childId === undefined) childId = null ;
-				var l = st.children.length ;
-				
-				if (!!childId) {
-					child.id = childId ;
-				}else {
-					if(child.id === undefined) 
-					child.id = l ;
-					else {
-						childId = child.id ;
-					}
-				}
-				st.children[l] = child ; // write L numeric entry
-				
-				
-				if (Type.of(childId, 'string')) { // write Name STRING Entry
-					st.alphachildren[childId] = child ;
-				}
-				
-				return st.register(child) ;
-			},
-			remove:function remove(ref){
-				var st = this ;
-				
-				if(ref === undefined) ref = -1 ;
-				var child = st.getChild(ref) ;
-				var n = st.getIndexOfChild(child) ;
-				
-				if (Type.of(child.id, 'string')){
-					st.alphachildren[child.id] = null ;
-					delete st.alphachildren[child.id] ;
-				}
-				
-				st.children.splice(n, 1) ;
-				if (st.playhead == n) st.playhead -- ;
-				
-				return st.unregister(child) ;
-			},
-			empty:function empty(destroyChildren){
-				if(destroyChildren === undefined) destroyChildren = true ;
-				var l = this.getLength() ;
-				while (l--) destroyChildren ? this.remove().destroy() : this.remove() ;
-			},
-			register:function register(child, cond){
-				var st = this , ancestor;
-				if(cond === undefined) cond = true ;
-				
-				if (cond) {
-					child.index = st.children.length - 1 ;
-					child.parentStep = st ;
-					child.depth = st.depth + 1 ;
-					ancestor = child.ancestor = st.getAncestor() ;
-					child.path = (st.path !== undefined ? st.path : st.id ) + Step.SEPARATOR + child.id ;
-					
-					if (!!Step.hierarchies[ancestor.id]) {
-						Step.hierarchies[ancestor.id][child.path] = child ;
-					}
-					
-				}else {
-					ancestor = child.ancestor ;
-					
-					if (!!Step.hierarchies[ancestor.id]) {
-						Step.hierarchies[ancestor.id][child.path] = undefined ;
-						delete Step.hierarchies[ancestor.id][child.path] ;
-					}
-					
-					child.index = - 1 ;
-					child.parentStep = undefined ;
-					child.ancestor = undefined ;
-					child.depth = 0 ;
-					child.path = undefined ;
-				}
-				return child ;
-			},
-			unregister:function unregister(child){ return this.register.apply(this, [child, false]) },
-			registerAsAncestor:function registerAsAncestor(cond){
-				var st = this ;
-				if (cond === undefined) cond = true ;
-				if (cond) {
-					Step.hierarchies[st.id] = { } ;
-					st.ancestor = st ;
-				}else {
-					if (st.id in Step.hierarchies) {
-						Step.hierarchies[st.id] = null ;
-						delete Step.hierarchies[st.id] ;
-					}
-					st.ancestor = null ;
-				}
-				return st ;
-			},
-			unregisterAsAncestor:function unregisterAsAncestor(){ 
-			   return this.registerAsAncestor(false) 
-			},
-			linkHierarchy:function linkHierarchy(h){
-			   this.hierarchyLinked = true ;
-			   this.hierarchy = h ;
-			   return this ;
-			},
-			unlinkHierarchy:function unlinkHierarchy(h){
-			   this.hierarchyLinked = false ;
-			   this.hierarchy = undefined ;
-			   delete this.hierarchy ;
-			   return this ;
-			},
-			getIndexOfChild:function getIndexOfChild(child){
-				return ArrayUtil.indexOf(this.children, child) ;
-			},
-			play:function play(ref){
-				var st = this ;
-				if(ref === undefined) ref = '$$playhead' ;
-				var child ;
-				if (ref == '$$playhead') {
-					child = st.getChild(st.playhead) ;
-				}else {
-					child = st.getChild(ref) ;
-				}
-				
-				var n = st.getIndexOfChild(child) ;
-				
-				st.way = (n < st.playhead) ? 'backward' : 'forward' ;
-				
-				if (n == st.playhead) {
-					
-					if(n == -1){ 
-						trace('requested step "' + ref + '" is not child of parent... '+st.path) ;
-					}else{
-						trace('requested step "' + ref + '" is already opened... '+st.path) ;
-					}
-					
-					return n ;
-				}else {
-					var curChild = st.children[st.playhead] ;
-					
-					if (!Type.is(curChild, Step)) {
-						st.playhead = n ;
-						child.open() ;
-					}else {
-						if (curChild.opened) {
-							var step_close2 ;
-							curChild.bind('step_close', step_close2 = function(e){
-								e.target.unbind(e, step_close2) ;
-								child.open() ;
-								st.playhead = n ;
-							}) ;
-							curChild.close() ;
-						}else {
-							child.open() ;
-							st.playhead = n ;
-						}
-					}
-				}
-				return n ;
-			},
-			kill:function kill(ref){
-				var st = this ;
-				if(ref === undefined) ref = '$$current' ;
-				var child;
-				if (st.playhead == -1) return st.playhead ;
-				
-				if (ref == '$$current') {
-					child = st.getChild(st.playhead) ;
-				}else {
-					child = st.getChild(ref) ;
-				}
-				
-				var n = st.getIndexOfChild(child) ;
-				
-				child.close() ;
-				st.playhead = -1 ;
-				return n ;
-			},
-			next:function next(){
-				this.way = 'forward' ;
-				if (this.hasNext()) return this.play(this.getNext()) ;
-				else return -1 ;
-			},
-			prev:function prev(){
-				this.way = 'backward' ;
-				if (this.hasPrev()) return this.play(this.getPrev()) ;
-				else return -1 ;
-			},
-			getNext:function getNext(){
-				var s = this.children[this.playhead + 1] ;
-				return this.looping ? Type.is(s, Step) ? s : this.children[0] : s ;
-			},
-			getPrev:function getPrev(){
-				var s = this.children[this.playhead - 1] ;
-				return this.looping? Type.is(s, Step) ? s : this.children[this.getLength() - 1] : s ;
-			},
-			hasNext:function hasNext(){ return this.getNext() ?  true : this.looping },
-			hasPrev:function hasPrev(){ return this.getPrev() ?  true : this.looping },
-			// Navigating behaviors
-			handleNext:function(){
-				if(!this.parentStep) return this ;
-				return this.parentStep.hasNext() ? this.parentStep.getNext() : this.parentStep.getChild(0) ;
-			},
-			handlePrev:function(){
-				if(!this.parentStep) return this ;
-				return this.parentStep.hasPrev() ? this.parentStep.getPrev() : this.parentStep.getChild(this.parentStep.children.length - 1) ;
-			},
-			handleUp:function(){
-				return this.parentStep == Unique.instance ? this : this.parentStep || this ;
-			},
-			handleDown:function(){
-				return this.defaultStep || this.children[0] || this ;
-			},
-			dumpChildren:function dumpChildren(str){
-				if(!!!str) str = '' ;
-				var chain = '                                                                            ' ;
-				this.children.forEach(function(el, i, arr){
-					str += chain.slice(0, el.depth) ;
-					str += el ;
-					if(parseInt(i+1) in arr) str += '\n' ;
-				})
-				return str ;
-			},
-			godFather:function(){
-				var s = this ;
-				while(!!s.parentStep && s.parentStep !== Unique.instance){
-					s = s.parentStep ;
-				}
-				return s ;
-			},
-			toString:function toString(){
-				var st = this ;
-				return '[Step >>> id:'+ st.id+' , path: '+st.path + ((st.children.length > 0) ? '[\n'+st.dumpChildren() +'\n]'+ ']' : ']') ;
-			}
-		}) ;
-		
-		var Unique = Type.define({
-			pkg:'step',
-			inherits:Step,
-			domain:Type.appdomain,
-			constructor:Unique = function Unique(){
-				Unique.instance = this ;
-				Unique.base.apply(this, ['@', new Command(this, function(){
-					var c = this ; 
-					var u = Unique.instance ; 
-					
-					return this ;
-				})]) ;
-			},
-			statics:{
-				instance:undefined,
-				getInstance:function getInstance(){ return Unique.instance || new Unique() }
-			},
-			addressComplete:function addressComplete(e){
-			   // trace('JSADDRESS redirection complete') ; // just for debug
-			},
-			toString:function toString(){
-				var st = this ;
-				return '[Unique >>> id:'+ st.id+' , path: '+ st.path + ((st.children.length > 0) ? '[\n'+ st.dumpChildren() + '\n]' + ']' : ']') ;
-			}
-		}) ;
-		
-
-		/* ADDRESS */
-		var weretested = false ;
-
-		var Address = Type.define({
-			pkg:'net',
-			domain:Type.appdomain,
-			statics:{
-				address_re:/^((?:(https?|ftp):)\/\/(([\w\d.-]+)(?::(\d+))?))?(?:([^#?]+)(#[^?]+)?)?([?].+)?$/i
-			},
-			constructor:Address = function Address(str){
-				var u = this ;
-				u.absolute = str ;
-				
-				str.replace(Address.address_re, function(){
-					var $$ = ArrayUtil.argsToArray(arguments) ;
-					
-					u.base = $$[1] || '' ;
-					u.protocol = $$[2] || '' ;
-					u.host = $$[3] || '' ;
-					u.hostname = $$[4] || '' ;
-					u.port = $$[5] || '' ;
-					u.path = $$[6] || '' ;
-
-					u.hash = $$[7] || '' ;
-					u.qs = $$[8] || '' ;
-					u.loc = '' ;
-					
-					var loc_re = /\/([a-z]{2})(?=\/|$)/ ;
-					
-					if(loc_re.test(u.path))
-						u.path = u.path.replace(loc_re, function(){
-							u.loc = arguments[1] ;
-							return '' ;
-						}) ;
-					else if(loc_re.test(u.hash))
-						u.hash = u.hash.replace(loc_re, function(){
-							u.loc = arguments[1];
-							return '' ;
-						}) ;
-					
-					u.abshash = u.hash ;
-					u.hash = u.hash.replace(StringUtil.HASH, '') ;
-					
-					return '' ;
-				}) ;
-			},
-			toString:function toString(){
-				return this.absolute ;
-			}
-		}) ;
-		
-		var HierarchyChanger = Type.define({
-			pkg:'hierarchy',
-			domain:Type.appdomain,
-			statics:{
-				DEFAULT_PREFIX:StringUtil.HASH,
-				SEPARATOR:Step.SEPARATOR,
-				__re_multipleseparator:new RegExp('('+Step.SEPARATOR+'){2,}'),
-				__re_qs:PathUtil.qs_re,
-				__re_path:PathUtil.path_re,
-				__re_endSlash:PathUtil.endslash_re,
-				__re_startSlash:PathUtil.startslash_re,
-				__re_hash:PathUtil.hash_re,
-				__re_abs_hash:PathUtil.abs_hash_re
-			},
-			hierarchy:undefined,
-			__value:StringUtil.EMPTY,
-			__currentPath:StringUtil.EMPTY,
-			__home:StringUtil.EMPTY,
-			__temporaryPath:StringUtil.EMPTY,
-			
-			constructor:HierarchyChanger = function HierarchyChanger(){
-				// trace(this)
-			},
-			setHierarchy:function setHierarchy(val){ this.hierarchy = val },
-			getHierarchy:function getHierarchy(){ return this.hierarchy },
-			setHome:function setHome(val){ this.__home = PathUtil.trimlast(val) },
-			getHome:function getHome(){ return this.__home = PathUtil.trimlast(__home) },
-			getValue:function getValue(){ return this.__value },
-			setValue:function setValue(val){ this.hierarchy.redistribute(this.__value = val) },
-			getCurrentPath:function getCurrentPath(){ return this.__currentPath = PathUtil.trimlast(this.__currentPath) },
-			setCurrentPath:function setCurrentPath(val){ this.__currentPath = PathUtil.trimlast(val) },
-			getTemporaryPath:function getTemporaryPath(){ return (this.__temporaryPath !== undefined) ? this.__temporaryPath = PathUtil.trimlast(this.__temporaryPath) : undefined },
-			setTemporaryPath:function setTemporaryPath(val){ this.__temporaryPath = PathUtil.trimlast(val) }
-		}) ;
-		
-		var Hierarchy = Type.define({
-			pkg:'hierarchy',
-			domain:Type.appdomain,
-			idTimeoutFocus:-1 ,
-			idTimeoutFocusParent:-1 ,
-			root:undefined , // Step
-			previousStep:undefined , // Step
-			currentStep:undefined , // Step
-			changer:undefined ,// HierarchyChanger;
-			exPath:'',
-			command:undefined ,// Command;
-			// CTOR
-			constructor:Hierarchy = function Hierarchy(){
-				//
-			},
-			setAncestor:function setAncestor(s, changer){
-				var hh = this ;
-				hh.root = s ;
-				hh.root.registerAsAncestor() ;
-				hh.root.linkHierarchy(this) ;
-				
-				hh.currentStep = hh.root ;
-				
-				hh.changer = changer || new HierarchyChanger() ;
-				hh.changer.hierarchy = hh ;
-				
-				return s ;
-			},
-			add:function add(step, at){
-				return Type.of(at, 'string') ?  this.getDeep(at).add(step) : this.root.add(step) ;
-			},
-			remove:function remove(id, at){
-				return Type.of(at, 'string') ? this.getDeep(at).remove(id) : this.root.remove(id) ;
-			},
-			getDeep:function getDeep(path){
-				var h = Step.hierarchies[this.root.id] ;
-				return (path === this.root.id) ? this.root : h[HierarchyChanger.__re_startSlash.test(path)? path : HierarchyChanger.SEPARATOR + path] ;
-			},
-			getDeepAt:function getDeepAt(referenceHierarchy, path){
-				return Step.hierarchies[referenceHierarchy][path] ;
-			},
-			getTop:function getTop(tg, rt){
-				while(tg.parentStep){
-					if(tg.parentStep == (rt || Express.app.get('unique').getInstance())) return tg ;
-					tg = tg.parentStep ;
-				}
-				return tg ;
-			},
-			redistribute:function redistribute(value){
-				var hh = this ;
-				if (hh.isStillRunning()) {
-					hh.changer.setTemporaryPath(value) ;
-					trace('>> still running...')
-				}else {
-					hh.changer.setTemporaryPath(undefined) ;
-					hh.launchDeep(value) ;
-				}
-			},
-			launchDeep:function launchDeep(path){
-				var hh = this ;
-				// trace('********************')
-				// trace('LAUNCHING DEEP : "' + path+'"')
-				// trace('********************')
-				
-				var arr = hh.formulate(path) ;
-				
-				if(!!!arr) {
-					// trace('NOTHING TO LAUCH HERE')
-					arr = hh.formulate('404') ;
-				}
-
-				var p = new CommandQueue(arr) ;
-				hh.command = p ;
-				var current = hh.currentStep ;
-				if(!!current) hh.previousStep = current ;
-				if(Type.is(current, Unique)) {
-					hh.command.execute() ; // cast Unique in that case
-				} else{
-					var foc_clear ;
-					current.bind('focus_clear', foc_clear = function(e){
-						current.unbind('focus_clear', foc_clear) ;
-						hh.command.execute() ;
-					}) ;
-					current.dispatchFocusOut() ;
-				}
-				hh.command.bind('$', hh.onCommandComplete) ;
-			},
-			onCommandComplete:function onCommandComplete(e){
-				var hh = AddressHierarchy.instance ;
-				hh.clear() ;
-				if(Type.of(hh.root.addressComplete, "function"))
-				hh.root.addressComplete(e) ;
-			},
-			clear:function clear(){
-				var hh = this ;
-				if(Type.is(hh.command, Command)) {
-					hh.command.unbind('$', hh.onCommandComplete) ;
-					hh.command = hh.command.destroy() ;
-				}
-			},
-			getLocaleReload:function getLocaleReload(){
-				var hh = this ;
-				if(Type.is(hh.currentStep, Express.app.get('unique')))
-					AddressHierarchy.localereload = false ;
-				if(AddressHierarchy.localereload){
-					return false ;
-				}
-				return true ;
-			},
-			formulate:function formulate(path){
-				var hh = this ;
-				if(hh.command === undefined) hh.changer.setTemporaryPath(path) ;
-				
-				var current = hh.currentStep ;
-				var currentpath = hh.changer.getCurrentPath() ;
-				var temppath = hh.changer.getTemporaryPath() ;
-				var tempreg = new RegExp('^'+currentpath+'\/?') ;
-				var remainpath = temppath.replace(tempreg, '') ;
-				
-				// there really is no step at this depth to try to go.
-				if(!!!hh.getDeep(path)){ // if no dynamic steps this will work
-					return ;
-				}
-
-				if(tempreg.test(temppath) && hh.getLocaleReload()){
-				
-					
-					// in case current is an hacked step containing default step
-					if(PathUtil.endslash(path)){
-						hh.state = hh.state ;
-						return hh.createCommandOpen(path) ;
-					}
-					// in case current is an non-end default step
-					if(current.id == ''){
-						hh.state = 'idle' ;
-						return hh.createCommandClose(current.path) ;
-					}
-					
-					var l = current.getLength() ;
-					
-					while(l--){
-						var regexp ;
-						var child = current.getChild(l) ;
-						
-						if (!!child.regexp){
-							
-							regexp = child.regexp ;
-							
-							if(regexp.test(remainpath)){
-								
-								var chunk ;
-								remainpath.replace(regexp, function(){
-									chunk = arguments[0] ;
-									return '' ;
-								}) ;
-
-								var def = PathUtil.ensurelast(current.path) + chunk ;
-								if(!!!hh.getDeep(def)){
-									Express.app.get(chunk, child.handler) ;
-									var resp = hh.getDeep(def) ;
-									resp.regexp = child.regexp ;
-									resp.userData = child.userData ;
-								}
-								
-								hh.state = 'descending' ;
-								return hh.createCommandOpen(def, {}) ;
-								
-							}
-							
-						}else{
-							regexp = new RegExp('^'+child.id) ;
-							if(regexp.test(remainpath)){
-								hh.state = 'descending' ;
-								return hh.createCommandOpen(child.path) ;
-							}
-						}
-					}
-				}
-				// there really is no step at this depth to try to go. // Old way with dynamic steps
-				// if(!!!hh.getDeep(path)){
-				// 	return ;
-				// }
-
-				// if still didnt find shit, close the current
-				hh.state = 'ascending' ;
-				return hh.createCommandClose(current.path) ;
-				
-				// handle errors in step finding
-				// hh.clear() ;
-				// throw new Error('No step was actually found with path ' + (path == '' ? '(an empty string)' : path) + ' in ' + hh.getCurrentStep()) ;
-				
-			},
-			createCommandError:function createCommandError(path){
-				var hh = this ;
-				trace('Error State') ;
-				hh.clear() ;
-
-				var c = new Command(hh, hh.openErrorCommand) ;
-				c.params = [path, c] ;
-				return c ;
-			},
-			openErrorCommand:function openErrorCommand(path, c){
-				var hh = c.context ;
-				var st = new Step('404', new Command(hh, function(cond){
-					trace(cond) ;
-				}, true))
-				st.open() ;
-				return st ;
-			},
-			checkRunning:function checkRunning(path){
-				var hh = this ;
-				if(hh.isStillRunning()){
-					hh.command.add(hh.formulate(path)) ;
-				}else{
-					hh.redistribute(path) ;
-				}
-			},
-			createCommandOpen:function createCommandOpen(path){
-				var c = new Command(this, this.openCommand) ;
-				c.params = [path, c] ;
-				return c ;
-			},
-			openCommand:function openCommand(path, c){
-				
-				var hh = c.context ;
-				var st_open ;
-				
-				var st = hh.getDeep(path) ;
-				
-				st.bind('step_open', st_open = function(e){
-					
-					st.unbind('step_open', st_open) ;
-					hh.changer.setCurrentPath(PathUtil.trimfirst(st.path)) ;
-					
-					hh.currentStep = st ;
-					hh.currentStep.state = Step.STATE_OPENED ;
-					
-					hh.treatSequence(function(){
-						c.dispatchComplete() ;
-					}) ;
-					
-				}) ;
-				
-				st.parentStep.play(st.id) ;
-				
-				return st ;
-			},
-			createCommandClose:function createCommandClose(path){
-				var c = new Command(this, this.closeCommand) ;
-				c.params = [path, c] ;
-				return c ;
-			},
-			closeCommand:function closeCommand(path, c){
-				var hh = c.context ;
-				var st = hh.getDeep(path) ;
-
-				var st_close ;
-				
-				st.bind('step_close', st_close = function(e){
-					st.unbind('step_close', st_close) ;
-
-					st.state = Step.STATE_CLOSED ;
-					
-					hh.changer.setCurrentPath(PathUtil.trimfirst(st.parentStep.path)) ;
-					
-					hh.currentStep = st.parentStep ;
-					
-					hh.treatSequence(function(){
-						if(Express.app.get('liveautoremove') == true)
-						if( !! st.regexp){
-							if(/[^\w]/.test(st.regexp.source))
-							Express.app.removeResponse(st) ;
-						}
-						c.dispatchComplete() ;
-					}) ;
-				})  
-				
-				st.parentStep.kill() ;
-				
-				return st ;
-			},
-			treatSequence:function treatSequence(closure){
-				var hh = this ;
-				
-				var current = hh.currentStep ;
-				var currentpath = hh.changer.getCurrentPath() ;
-				var temppath = hh.changer.getTemporaryPath() ;
-				
-				var remainpath = temppath.replace(new RegExp('^'+currentpath+'\/?'), '') ;
-				var cond = remainpath == '' ;
-				
-				if(temppath == '') cond = cond && currentpath == temppath ;
-				
-				if(cond){
-					if(!!current.defaultStep){
-						hh.checkRunning(current.defaultStep.path) ;
-					}else{
-						current.dispatchFocusIn() ;
-					}
-				}else{
-					hh.checkRunning(temppath) ;
-				}
-				
-				if(!!closure) closure() ;
-			},
-			isStillRunning:function isStillRunning(){ return Type.is(this.command, Command)},
-			getRoot:function getRoot(){ return this.root },
-			getCurrentStep:function getCurrentStep(){ return this.currentStep },
-			getPreviousStep:function getPreviousStep(){ return this.previousStep },
-			getChanger:function getChanger(){ return this.changer },
-			getCommand:function getCommand(){ return this.command }
-		}) ;
-		
-		var AddressHierarchy = Type.define({
-			pkg:'hierarchy',
-			inherits:Hierarchy,
-			domain:Type.appdomain,
-			statics:{
-				parameters:{
-					home:'',
-					base:location.protocol + '//'+ location.host + location.pathname ,
-					useLocale:true
-				},
-				baseAddress:new Address(location.href),
-				unique:undefined,
-				localereload:false,
-				isReady:function isReady(){
-					var address = AddressHierarchy.baseAddress ;
-					var base = address.base + address.path ;
-					return (base == AddressHierarchy.parameters.base) ;
-				},
-				create:function create(uniqueclass){
-					if(!!! Express.app.get('unique')) Express.app.set('unique', uniqueclass || Unique) ;
-					return AddressHierarchy.hierarchy = new AddressHierarchy(Express.app.get('unique')) ;
-				},
-				setup:function setup(params){
-					for(var s in params)
-						AddressHierarchy.parameters[s] = params[s] ;
-					return AddressHierarchy ;
-				}
-			},
-			hierarchy:undefined,
-			constructor:AddressHierarchy = function AddressHierarchy(s){
-				AddressHierarchy.base.call(this) ;
-				this.changer = new AddressChanger() ;
-				AddressHierarchy.instance = this ;
-				this.initAddress(s) ;
-			},
-			sliceLocale:function sliceLocale(value){
-				var changer = this.changer ,
-				startSlash = HierarchyChanger.__re_startSlash ,
-				endSlash = HierarchyChanger.__re_endSlash ,
-				path = '' ,
-				lang = '' ;
-				
-				path = value.replace(/^[a-z]{2}\//i, function($0, $1){
-					lang = $1 ;
-					return '' ;
-				}) ;
-				
-				return PathUtil.trimall(path) ;
-			},
-			initAddress:function initAddress(s){
-				this.changer.enable(location, this, s) ;// supposed to init the SWFAddress-like Stuff
-				// trace('JSADDRESS inited @'+ AddressHierarchy.parameters.base+' > with hash > '+location.hash) ;
-			},
-			redistribute:function redistribute(value){
-				var hh = this ;
-				value = hh.sliceLocale(value) ;
-				AddressHierarchy.factory.redistribute.apply(this, [value]) ;
-			},
-			headTo:function headTo(seek){
-				this.changer.setValue(PathUtil.ensureall(this.changer.locale + seek)) ;
-			}
-		}) ;
-		
-		var AddressChanger = Type.define({
-			pkg:'hierarchy',
-			inherits:HierarchyChanger,
-			domain:Type.appdomain,
-			statics:{
-				hashEnable:function hashEnable(href){
-					return '#' + href.replace(new RegExp(window.location.protocol + '//' + window.location.host), '').replace(/\/*$/,'/').replace(/^\/*/,'/').replace(/\/\/+/, '/') ;
-				},
-				hasMultipleSeparators:function hasMultipleSeparators(str){
-					return (!!str) ? HierarchyChanger.__re_multipleseparator.test(str) : str ;
-				},
-				removeMultipleSeparators:function removeMultipleSeparators(str){
-					return (!!str) ? str.replace(HierarchyChanger.__re_multipleseparator, StringUtil.SLASH) : str ;
-				}
-			},
-			roottitle:document.title,
-			skipHashChange:false,
-			constructor:AddressChanger = function AddressChanger(s){
-				AddressChanger.base.call(this) ;
-			},
-			enable:function enable(loc, hierarchy, uniqueClass){
-				var ch = this ;
-				var hh = ch.hierarchy = hierarchy ;
-				
-				var separator = HierarchyChanger.SEPARATOR ,
-				abshashReg = HierarchyChanger.__re_abs_hash ,
-				startSlashReg = HierarchyChanger.__re_startSlash ,
-				endSlashReg = HierarchyChanger.__re_endSlash ,
-				initLocale = document.documentElement.getAttribute('lang') || AddressHierarchy.parameters.defaultLocale,
-				// base location object stuff
-				href =  loc.href , // -> http://dark:13002/#/fr/unsubscribe/
-				protocol =  loc.protocol , // -> http:
-				hostname =  loc.hostname , // -> dark
-				port =  loc.port , // -> 13002
-				host =  loc.host , // -> dark:13002
-				pathname =  loc.pathname , // -> /
-				hash = loc.hash , // -> #/fr/unsubscribe/
-				search = loc.search ; // -> (empty string)
-				
-				var a = new Address(href) ;
-				var home = AddressHierarchy.parameters.home ;
-				
-
-				if(!abshashReg.test(a.absolute)) { // if has no /#/...
-					
-					weretested = true ;
-					ch.locale = (a.loc != '' ? a.loc : initLocale ) ;
-					
-					// resetting AJAX via Hash
-					
-					if(a.path === '/' && a.loc === '') {
-						var p = '#' + separator + ch.locale + a.path + a.qs ;
-						location.hash = p ;
-					}else{
-
-						location.href = a.base + '#' + separator + ch.locale + a.path + a.qs
-						throw '' ;
-						loc.href = a.path + '#' + separator + ch.locale + a.hash + a.qs ;
-					}
-				}
-				
-				
-				
-				ch.locale = ch.locale || a.loc ;
-				if(ch.locale == '') ch.locale = initLocale ;
-				
-				hh.setAncestor(uniqueClass.getInstance(), ch) ;
-				
-				// INIT HASHCHANGE EVENT WHETHER ITS THE FIRST OR SECOND TIME CALLED
-				// (in case there was nothing in url, home page was requested, hashchange wont trigger a page reload anyway)
-				$(window).bind('hashchange', function(e){ 
-					// trace('JSADDRESS hashchange', location.hash) ;
-					
-					var address = a.base + a.path + location.hash ;
-					var add = new Address(address) ;
-					var h = add.hash ;
-					var loc = '' ;
-					
-					
-					if(AddressHierarchy.parameters.useLocale){
-						// if Locale is missing
-						if(add.loc == '') {
-						   return ch.setValue(separator + ch.locale + h + add.qs) ;
-						}
-						
-						// locale must have changed, reload with appropriate content
-						if(add.loc !== ch.locale){
-							
-							ch.locale = add.loc ;
-							// window.location.reload() ;
-							// AddressHierarchy.localereload = true ;
-						}
-						loc = separator + add.loc ;
-					}
-					
-					// if multiple unnecessary separators
-					if(AddressChanger.hasMultipleSeparators(h))
-						return ch.setValue(loc + AddressChanger.removeMultipleSeparators(h)) ;
-					
-					// if path is absent // hack for index VERY special case, we don't want to reload with same path ??!!
-					if(h == '/' && home != '') 
-						return ch.setValue(loc + h + (home == '' ?  home : home + separator) + add.qs) ;
-					
-					// if last slash is missing
-					if(!endSlashReg.test(h)) 
-						return ch.setValue(loc + add.hash + separator + add.qs) ;
-					
-					// trace('WILL REDISTRIBUTE')
-					hh.redistribute(add.hash) ;
-					
-					return ;
-				})
-				
-				// OPENS UNIQUE STEP FOR REAL, THEN SET THE FIRST HASCHANGE
-				var uniquehandler ;
-				hh.root.bind('step_open', uniquehandler = function(e){
-					hh.root.unbind('step_open', uniquehandler) ;
-						if(!!window.opera) weretested = false ;
-						if(weretested === false ){
-							var str = location.hash.replace('#/', '').replace(ch.locale, '') ;
-							// first hack when no home step at all
-							if(str == '/' && ch.getValue() == '' && AddressHierarchy.parameters.home == '' && Unique.getInstance().getChild('') === undefined)
-								return ; 
-							else
-								$(window).trigger('hashchange') ;
-						}
-				}) ;
-				
-				hh.root.open() ;
-				return true ;
-			},
-			setValue:function setValue(newVal){
-				location.hash = this.__value = newVal ;
-			},
-			setStepValue:function setStepValue(step){
-				
-				var loc = '' ;
-				if(AddressHierarchy.parameters.useLocale){
-					loc = '/' + this.locale ;
-				}
-				
-				this.setValue('#' + loc + step.path + '/') ;
-			},
-			setTitle:function setTitle(title){
-				document.title = this.roottitle + '  ' + title ;
-			}
-		}) ;
-
-
-		/* RESPONSE */
-		var Response = Type.define({
-			pkg:'response',
-			inherits:Step,
-			domain:Type.appdomain,
-			constructor:Response = function Response(id, pattern, commandOpen, commandClose){
-				
-				var res = this ;
-				var focus = function(e){
-					if(e.type == 'focusIn'){
-						AddressHierarchy.instance.changer.setTitle(this.path) ;
-					}else{
-						// AddressChanger.setTitle(this.parentStep.path) ;
-						// we don't want title to switch all the time, just when openig a step
-					}
-				} ;
-				
-				Response.base.apply(this, [
-					id, 
-					commandOpen || new Command(res, function resCommandOpen(){
-						// trace('opening "'+ res.path+ '"') ;
-						var c = this ;
-						
-						// res.bind('focusIn', focus) ;
-						// res.bind('focusOut', focus) ;
-						
-						if(!!res.responseAct) {
-							
-							var rr = res.responseAct(res.id, res) ;
-							if(!!rr){
-								return rr ;
-							}
-						}
-						
-						return c ;
-					}),
-					commandClose || new Command(res, function resCommandClose(){
-						// trace('closing "'+ res.path+ '"') ;
-						var c = this ;
-						
-						
-						if(!!res.responseAct) {
-							var rr = res.responseAct(res.id, res) ;
-							if(!!rr){
-								
-								return rr ;
-							}
-						}
-						
-						// res.unbind('focusIn', focus) ;
-						// res.unbind('focusOut', focus) ;
-						
-						return c ;
-					})
-				]) ;
-				
-				// Cast regexp Steps
-				if(pattern !== '/' && PathUtil.allslash(pattern)){
-					res.regexp = new RegExp(PathUtil.trimall(pattern)) ;
-				}
-
-				return res ;
-			},
-			ready:function ready(){
-				var st = this ;
-				setTimeout(function(){
-					(st.opening ? st.commandOpen : st.commandClose).dispatchComplete() ;
-				}, 1) ;
-				return this ;
-			},
-			focusReady:function focusReady(){ this.dispatchCleared() ; return this ;},
-			fetch:function(url, params){
-				// return new Mongo(url).load(undefined, false).render(params) ;
-				
-				return ObjectUtil.merge(params, {
-					lang:AddressHierarchy.instance.changer.locale
-				}) ;
-			},
-			generateHash:function(){ return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) },
-			renderJade:function(url, params, callback){
-				
-				var res = this, args ;
-				
-				var hash = '?' + this.generateHash() ;
-				
-				var request, t ;
-				
-				if(callback){ // switch to ASYNC MODE
-					
-					args = [].slice.call(arguments) ;
-					url = args.shift() ;
-					params = args.shift() ;
-					callback = args.shift() ;
-					
-					
-					try{
-						request = new Request().load(true, url + hash, function(jxhr, r){
-							
-							try{
-								t = new Jade().render(r, params) ;
-								
-							}catch(e){
-								
-								e.message = ('JadeModuleError :: Rendering ' + url + ' :: ' + e.message) ;
-								throw e ;
-								
-							}
-							
-							res.template = $(t).children() ;
-							callback.apply(res, [].concat(args)) ;
-						}) ;
-						
-					}catch(e){
-						e.message = ('JadeModuleError :: URL ' + url + 'not found') ;
-						throw e ;
-					}
-					
-				}else{
-					
-					try{
-						request = new Request().load(false, url + hash) ;
-					}catch(e){
-						e.message = ('JadeModuleError :: URL ' + url + 'not found') ;
-						throw e ;
-					}
-					
-					try{
-						t = new Jade().render(request.response, params) ;
-					}catch(e){
-						e.message = ('JadeModuleError :: Rendering ' + url + ' :: ' + e.message) ;
-						throw e ;
-					}
-					res.template = $(t).children() ;
-				}
-				
-				
-				
-				
-				return res ;
-			},
-			render:function(url, params, callback){
-				
-				var res = this, args ;
-				
-				// var hash = '' ;
-				var hash = '?' + this.generateHash() ;
-				
-				var request, t ;
-				
-				if(!!callback){ // switch to ASYNC MODE
-					
-					args = [].slice.call(arguments) ;
-					url = args.shift() ;
-					params = args.shift() ;
-					callback = args.shift() ;
-					
-					try{
-						request = new Request().load(true, url + hash, function(jxhr, r){
-							
-							t = request.response ;
-							res.template = $(t) ;
-							callback.apply(res, [].concat(args)) ;
-						}) ;
-						
-					}catch(e){
-						e.message = ('LoadModuleError :: URL ' + url + 'not found') ;
-						throw e ;
-					}
-					
-				}else{
-					
-					try{
-						request = new Request().load(false, url + hash) ;
-						t = request.response ;
-					}catch(e){
-						e.message = ('LoadModuleError :: URL ' + url + 'not found') ;
-						throw e ;
-					}
-					res.template = $(t) ;
-				}
-				
-				return res ;
-			},
-			send:function(str, params){
-				var res = this ;
-				var t = new Jade().render(str, params) ;
-				res.template = $(t).children() ;
-				
-				return res ;
-			},
-			isLiveStep:function(){
-				var res = this ;
-				if( !! res.regexp){
-					if(/[^\w]/.test(res.regexp.source))
-					return true ;
-				}
-				return false ;
-			}
-		}) ;
-		
-		/* StrawExpress App */
-		var Express = Type.define({
-			pkg:'::Express',
-			domain:Type.appdomain,
-			statics:{
-				app:undefined,
-				disp:new EventDispatcher(window),
-				initialize:function(){
-					if(!!window.console && !! window.console.log) console.log('Express >> App Instanciated') ;
-					Express.app = new Express() ;
-				}
-			},
-			settings:{
-				'env': 'development',
-				'views': undefined
-			},
-			destroy:function destroy(){
-				if (!!Unique.instance) Unique.instance = Unique.getInstance().destroy() ;
-			},
-			constructor:Express = function Express(win){
-				return !!Express.app ? Express.app : this ;
-			},
-			Qexists : function Qexists(sel, sel2) {
-				if(!!sel2) sel = $(sel).find(sel2) ;
-				sel = Type.is(sel, $) ? sel : $(sel) ;
-				var s = new Boolean(sel.length) ;
-				s.target = sel ;
-				return (s.valueOf()) ? s.target : undefined ;
-			},
-			listen:function listen(type, closure){
-				Express.disp.bind(type, closure) ;
-				return this ;
-			},
-			trigger:function trigger(type){
-
-				
-				Express.disp.trigger(type) ;
-
-				return this ;
-			},
-			fire:function fire(type){
-				Express.disp.fire(type) ;
-				return this ;
-			},
-			discard:function discard(type, closure){
-				Express.disp.unbind(type, closure) ;
-				return this ;
-			},
-			use:function use(route, fn){
-				var app, home, handle ;
-				// default route to '/' 
-				if (!Type.of(route, 'string')) 
-					fn = route, route = '/' ;
-				// express app
-				if (!!fn.handle && !!fn.set) app = fn ;
-				// mounted an app
-				if (!!app) {
-					// app.parent = this ;
-					// app.emit('mount', this) ;
-				}
-				return this ;
-			},
-			address:function address(params){
-				return this ;
-			},
-			isReady:function(){
-				return AddressHierarchy.isReady();
-			},
-			createClient:function createClient(){
-				AddressHierarchy
-						.setup(Express.app.get('address'))
-						.create(Express.app.get('unique')) ;
-				
-				return this ;
-			},
-			initJSAddress:function initJSAddress(){
-				Express.app.get('unique').getInstance().commandOpen.dispatchComplete() ;
-				return this ;
-			},
-			get:function get(pattern, handler, parent){
-				
-				if(arguments.length == 1){ // is a settings order 
-					return this.set(pattern) ;
-				}
-				var sectionId = handler.sectionId ;
-				
-				handler.sectionId = undefined ;
-				delete handler.sectionId ;
-				
-				var ud ;
-				
-				if(handler.constructor !== Function){
-					for(var s in handler){
-						this.get(s == 'index' ? '/' : s , handler[s], parent) ;
-					}
-					return this ;
-				}else{
-					
-				}
-				
-				var id = pattern.replace(/(^\/|\/$)/g, '') ;
-				
-				var res = new Response(id, pattern) ;
-				
-				res.sectionId = sectionId ;
-				
-				res.parent = !!parent ? (id == '' ? parent.parentStep : parent) : res.path == '/' ? undefined : Express.app.get('unique').getInstance() ;
-				res.name = id == '' ? !!parent ? parent.id : Express.app.get('unique').getInstance().id : res.id ;
-
-
-				res.handler = handler ;
-				res.responseAct = handler ;
-				
-				this.enableResponse(true, res, parent) ;
-				
-				return this ;
-			},
-			set: function set(setting, val){
-				if (1 == arguments.length) {
-					if (this.settings.hasOwnProperty(setting)) {
-						return this.settings[setting] ;
-					} else if(!!this.parent) {
-						return this.parent.set(setting) ;
-					}
-				} else {
-					this.settings[setting] = val ;
+				return this;
+			},
+			/** Run the closure. Returns `this` if synchronous (truthy),
+			 *  or undefined if async (command queue will await `depth` event).
+			 *  @return {Command|undefined} */
+			execute: function () {
+				var r = this.closure.apply(this, [].concat(this.params));
+				if (!!r) {
 					return this;
 				}
 			},
-			setUserData:function setUserData(data, res){
-				ObjectUtil.merge(data, res.userData) ;
+			/** Fire the completion event. */
+			dispatchComplete: function () {
+				this.trigger(this.depth);
 			},
-			enableResponse:function enableResponse(cond, res, parent){
-				var handler = res.handler ;
-				
-				if(cond){
-					
-					parent = parent || AddressHierarchy.hierarchy.currentStep ;
-					
-					
-					if(res.id == '') parent.defaultStep = res ;
-					parent.add(res) ;
-					
-					for(var s in handler){
-						if(s == 'name') continue ; // Stoopid IE trying to go for Name value of the function
-						if(s.indexOf('@') == 0) this.attachHandler(true, s, handler[s], res) ;
-						else if(s == 'index') this.get('', handler[s], res) ;
-						else if(s == 'userData') this.setUserData(handler[s], res) ;
-						else this.get(s, handler[s], res) ;
-					}
-					
-				}else{
-					for(var s in handler){
-						if(s.indexOf('@') == 0) this.attachHandler(false, s, handler[s], res) ;
-					}
-					var l = res.getLength() ;
-					
-					while(l--){
-						this.enableResponse(false, res.getChild(l)) ;
-					}
-					res.parentStep.remove(res) ;
+			/** Cancel this command by destroying it.
+			 *  @return {undefined} */
+			cancel: function () {
+				return this.destroy();
+			},
+			destroy: function () {
+				for (var s in this)
+					delete this[s];
+
+				return Command.factory.destroy.call(this);
+			}
+		});
+		/** @class CommandQueue
+		 *  @extends Command
+		 *  Sequential command runner. Commands are queued and executed one at a time.
+		 *  Async commands signal completion via the `depth` event; sync commands
+		 *  (truthy return) advance immediately. */
+		var CommandQueue = Type.define({
+			pkg: 'command',
+			inherits: Command,
+			domain: Type.appdomain,
+			constructor: function CommandQueue() {
+
+				Command.base.apply(this, []);
+
+				this.commands = arguments.length ? ArrayUtil.argsToArray(arguments) : [];
+				this.commandIndex = -1;
+				this.depth = '$';
+
+				// if(this.commands.length > 0 ) this.add(this.commands) ;
+
+				return this;
+			},
+			/** Add one or more commands to the queue.
+			 *  Accepts a single Command, an array of Commands, or multiple arguments.
+			 *  @param {...Command|Command[]} args */
+			add: function () {
+				var cq = this;
+				var args = arguments;
+				var l = args.length;
+				switch (l) {
+					case 0:
+						throw new Error('cannot add an null object, ...commandQueue');
+						break;
+					case 1:
+						var arg = args[0];
+						if (Type.is(arg, Command)) cq.commands[cq.commands.length] = arg;
+						else // must be an array of commands
+							if (Type.is(arg, Array)) add.apply(null, arg);
+						break;
+					default:
+						for (var i = 0; i < l; i++) add(args[i]);
+						break;
 				}
 			},
-			removeResponse:function removeResponse(res){
-				return this.enableResponse(false, res) ;
+			/** Reset the queue pointer to the beginning.
+			 *  @return {CommandQueue} this */
+			reset: function () {
+				if (this.commands.length) {
+					var commands = this.commands;
+					var l = commands.length;
+					for (; l--;) {
+						var comm = commands[l];
+						if (Type.is(comm, CommandQueue)) comm.commandIndex = -1;
+					}
+				}
+				this.commandIndex = -1;
+				return this;
 			},
-			attachHandler:function attachHandler(cond, type, handler, res){
-				type = type.replace('@', '') ;
-				var bindmethod = cond ? 'bind' : 'unbind' ;
-				switch(type){
-					case 'focus' :
-						res[bindmethod](type+'In', handler) ;
-						res[bindmethod](type+'Out', handler) ;
-					break ;
-					case 'toggleIn' :
-					case 'open' :
-						res[bindmethod]('step_opening', handler) ;
-					break ;
-					case 'toggleOut' :
-					case 'close' :
-						res[bindmethod]('step_closing', handler) ;
-					break ;
-					case 'toggle' :
-						res[bindmethod]('step_opening', handler) ;
-						res[bindmethod]('step_closing', handler) ;
-					break ;
-					case 'focusIn' :
-					case 'focusOut' :
-					default :
-						res[bindmethod](type, handler) ;
-					break ;
+			/** Advance to the next command in the queue.
+			 *  If the command returns truthy (async), waits for its `depth` event
+			 *  before advancing. If falsy (sync), advances immediately.
+			 *  Emits `depth` when all commands are done.
+			 *  @return {CommandQueue} this */
+			next: function () {
+				var cq = this;
+				var ind = this.commandIndex;
+				ind++;
+
+				var c = this.commands[ind];
+				if (!c) {
+					Logger.warn('commandQueue did not find a command — command stack is empty');
+					setTimeout(function () { cq.dispatchComplete() }, 0);
+					return this;
+				}
+
+				c.depth = this.depth + '$';
+
+				var r = c.execute();
+
+				if (!r) {
+					this.commandIndex = ind;
+					if (ind == this.commands.length - 1) {
+						this.dispatchComplete();
+					} else {
+						this.next();
+					}
+				} else {
+
+					var type = c.depth;
+					var rrr;
+
+					r.bind(type, rrr = function () {
+						r.unbind(type, rrr);
+						cq.commandIndex = ind;
+
+						ind == cq.commands.length - 1
+							? cq.dispatchComplete()
+							: cq.next();
+					});
+				}
+
+				return this;
+			},
+			/** Alias for next(). */
+			execute: function () {
+				return this.next();
+			},
+			/** Cancel by destroying. */
+			cancel: function () {
+				return this.destroy();
+			},
+			destroy: function () {
+				// trace('destroying', this)
+				if (!!this.commands) {
+					var commands = this.commands;
+					var l = commands.length;
+					for (; l--;)
+						commands.pop().destroy();
+				}
+				delete this.add;
+				delete this.commands;
+				delete this.commandIndex;
+
+				return CommandQueue.factory.destroy.call(this);
+			}
+		});
+		/** @class WaitCommand
+		 *  @extends Command
+		 *  A command that waits for a specified duration (in ms) before completing.
+		 *  Optionally runs an initialization closure before starting the timer. */
+		var WaitCommand = Type.define({
+			pkg: 'command',
+			inherits: Command,
+			domain: Type.appdomain,
+			/** @param {number}   time         Delay in milliseconds
+			 *  @param {Function} [initclosure] Optional closure to run before the delay */
+			constructor: 		WaitCommand = function WaitCommand(time, initclosure) {
+				WaitCommand.base.call(this);
+
+				this.time = time;
+				this.depth = '$';
+				this.uid = -1;
+				this.initclosure = initclosure;
+
+				return this;
+			},
+			/** Start the timer (optionally after running initclosure).
+			 *  Returns `this` (truthy) so CommandQueue treats it as async.
+			 *  @return {WaitCommand} this */
+			execute: function () {
+				var w = this;
+
+				if (!!w.initclosure) {
+					var co = new Command(w, w.initclosure);
+					var o = co.execute();
+					var rrr;
+					if (!!o) {
+						co.bind('$', rrr = function (e) {
+							co.unbind('$', rrr);
+							this.uid = setTimeout(function () {
+								w.dispatchComplete();
+								this.uid = -1;
+							}, this.time);
+						});
+					} else {
+						this.uid = setTimeout(function () {
+							w.dispatchComplete();
+							this.uid = -1;
+						}, this.time);
+					}
+				} else {
+					this.uid = setTimeout(function () {
+						w.dispatchComplete();
+						this.uid = -1;
+					}, this.time);
+				}
+
+				return this;
+			},
+			/** Cancel by destroying. */
+			cancel: function () {
+				return this.destroy();
+			},
+			destroy: function () {
+
+				if (this.uid !== -1) {
+					clearTimeout(this.uid);
+				}
+				delete this.uid;
+				delete this.time;
+				delete this.initclosure;
+
+				return WaitCommand.factory.destroy.call(this);
+			}
+		});
+		/** @class AjaxCommand
+		 *  @extends Command
+		 *  Command that performs an AJAX request and completes when the response arrives.
+		 *  If called again with a cached response, re-dispatches the success callback
+		 *  immediately. */
+		var AjaxCommand = Type.define({
+			pkg: 'command',
+			inherits: Command,
+			domain: Type.appdomain,
+			/** @param {string}   url
+			 *  @param {Function} [success]  Callback: fn(jxhr, responseText)
+			 *  @param {*}        [postData]
+			 *  @param {Function} [init]     Init closure, receives the AjaxRequest
+			 *  @param {Function} [progress] Progress callback */
+			constructor: AjaxCommand = function AjaxCommand(url, success, postData, init, progress) {
+				if (postData === null) postData = undefined;
+
+				AjaxCommand.base.call(this);
+
+				this.url = url;
+				this.success = success;
+				this.postData = postData;
+				this.depth = '$';
+
+				this.initclosure = init;
+				this.progressclosure = progress;
+
+				return this;
+			},
+			/** Fire the AJAX load. If a previous request is cached, re-calls success.
+			 *  @return {AjaxCommand} this (async) */
+			execute: function () {
+				var w = this;
+				if (!!w.request && !!w.success) return w.success.apply(w, [w.jxhr, w.request]);
+				w.request = new AjaxRequest(w.url, function (jxhr, r) {
+					w.jxhr = jxhr;
+
+					if (!!w.success) w.success.apply(w, [jxhr, r]);
+				}, w.postData, w.error, w.progressclosure);
+
+				if (!!w.initclosure) w.initclosure.apply(w, [w.request]);
+				if (!!w.toCancel) {
+					setTimeout(function () {
+						w.dispatchComplete();
+					}, 10);
+					return w;
+				}
+				setTimeout(function () { w.request.load() }, 0);
+
+				return this;
+			},
+			cancel: function () {
+				return this.destroy();
+			},
+			destroy: function () {
+				if (!!this.request) this.request = this.request.destroy();
+
+				delete this.request;
+				delete this.url;
+				delete this.success;
+				delete this.postData;
+				delete this.initclosure;
+				delete this.progressclosure;
+
+				return AjaxCommand.factory.destroy.call(this);
+			}
+		});
+
+
+		// COLLECTIONS
+
+		/** @class Cyclic
+		 *  Cyclic collection wrapper. Maintains an array of items and a computed
+		 *  `unit` object with proportional index/deg/rad values. */
+		var Cyclic = Type.define({
+			pkg: 'collection',
+			domain: Type.appdomain,
+			/** @param {Array} [arr] Initial items */
+			constructor: Cyclic = function Cyclic(arr) {
+				var cy = this;
+				var commands = cy.commands = [];
+				cy.index = -1;
+				cy.looping = true;
+				cy.deferred = false;
+
+				if (!!arr && arr.length > 0) {
+					this.add.apply(this, arr);
+				}
+				return this;
+			},
+			add: function () {
+				var cy = this;
+				var l;
+				var commands = cy.commands;
+				var args = [].slice.call(arguments);
+				var len = args.length;
+				for (var i = 0; i < len; i++) {
+					var arg = args[i];
+					if (arg[0] !== undefined && Type.is(arg[0], Command)) {
+						l = cy.push.apply(cy, arg);
+					} else {
+						l = cy.push.apply(cy, [arg]);
+					}
+				}
+				return l;
+			},
+			remove: function () {
+				var cy = this;
+				var commands = cy.commands;
+				var args = [].slice.call(arguments);
+				var len = args.length;
+				for (var i = 0; i < len; i++) {
+					var arg = args[i];
+					if (isNaN(arg) && Type.is(arg, Command)) {
+						var n = cy.indexOf(arg);
+						cy.splice(n, 1);
+					} else {
+						cy.splice(arg, 1);
+					}
+				}
+				var l = commands.length;
+				return l;
+			},
+			indexOf: function (el) {
+				var cy = this;
+				var commands = cy.commands;
+
+				if (Array.prototype['indexOf'] !== undefined) {
+					return commands.indexOf(el);
+				} else {
+					var l = commands.length;
+					for (var i = 0; i < l; i++) {
+						if (commands[i] === el) return i;
+					}
+				}
+				return -1;
+			},
+			splice: function () {
+				var cy = this;
+				var commands = cy.commands;
+				var r = commands.splice.apply(commands, [].slice.call(arguments));
+				var l = commands.length;
+				var div = 1 / l;
+				cy.unit = { index: div, deg: div * 360, rad: div * Math.PI * 2 };
+				return r;
+			},
+			push: function () {
+				var cy = this;
+				var commands = cy.commands;
+				var l = commands.push.apply(commands, [].slice.call(arguments));
+				var div = 1 / l;
+				cy.unit = { index: div, deg: div * 360, rad: div * Math.PI * 2 };
+				return l;
+			},
+			unshift: function () {
+				var cy = this;
+				var commands = cy.commands;
+				var l = commands.unshift.apply(commands, [].slice.call(arguments));
+				var div = 1 / l;
+				cy.unit = { index: div, deg: div * 360, rad: div * Math.PI * 2 };
+				return l;
+			},
+			pop: function () {
+				var cy = this;
+				var commands = cy.commands;
+				var command = commands.pop();
+				var l = commands.length;
+				var div = 1 / l;
+				cy.unit = { index: div, deg: div * 360, rad: div * Math.PI * 2 };
+				return command;
+			},
+			shift: function () {
+				var cy = this;
+				var commands = cy.commands;
+				var command = commands.shift();
+				var l = commands.length;
+				var div = 1 / l;
+				cy.unit = { index: div, deg: div * 360, rad: div * Math.PI * 2 };
+				return command;
+			},
+			getPrev: function (n) {
+				var cy = this;
+				if (n === undefined) n = 1;
+
+				n = -n;
+
+				var neo = (cy.index * cy.unit.rad) + (n * cy.unit.rad);
+
+				if (cy.looping !== true) {
+					if (cy.index <= 0)
+						return { index: -1 };
+				} else {
+					neo = neo % (Math.PI * 2);
+				}
+
+				var s = this.seek(neo);
+				s.dif = n;
+				return s;
+			},
+			prev: function (n) {
+				var cy = this;
+
+				cy.ascend = !Boolean(n === undefined || n > 0);
+
+				var item = cy.getPrev(n);
+				var ind = item.index;
+
+				if (ind == -1) {
+					return false;
+				}
+
+				cy.increment = item.dif;
+				var c = cy.commands[ind].execute();
+
+				cy.index = ind;
+				return c;
+			},
+			getNext: function (n) {
+				var cy = this;
+
+				if (n === undefined) n = 1;
+
+
+				var neo = (cy.index * cy.unit.rad) + (n * cy.unit.rad);
+
+				var l = cy.commands.length;
+				if (cy.looping !== true) {
+					if (cy.index >= l - 1)
+						return { index: -1 };
+				} else {
+					neo = neo % (Math.PI * 2);
+				}
+				var s = this.seek(neo);
+				s.dif = n;
+				return s;
+			},
+			next: function (n) {
+				var cy = this;
+
+				cy.ascend = Boolean(n === undefined || n > 0);
+
+				var item = cy.getNext(n);
+
+				var ind = item.index;
+
+				if (ind == -1) {
+					return false;
+				}
+
+				cy.increment = item.dif;
+
+				var c = cy.commands[ind].execute();
+				cy.index = ind;
+				return c;
+			},
+			getGo: function (n) {
+				var cy = this;
+
+				if (n === undefined) n = 1;
+
+
+				var neo = (n * cy.unit.rad);
+
+				var l = cy.commands.length;
+				if (cy.looping !== true) {
+					if (cy.index >= l - 1)
+						return { index: -1 };
+				} else {
+					neo = neo % (Math.PI * 2);
+				}
+				var s = this.seek(neo);
+				s.dif = n;
+				return s;
+			},
+			go: function (n) {
+				var cy = this;
+
+				cy.ascend = Boolean(n === undefined || n > 0);
+
+				var item = cy.getGo(n);
+
+				var ind = item.index;
+
+				if (ind == -1) {
+					return false;
+				}
+
+				cy.increment = item.dif;
+
+				var c = cy.commands[ind].execute();
+				cy.index = ind;
+				return c;
+			},
+			seek: function (rad) { // relative deg (degree) as relative position index in Array
+				var cy = this;
+				var rad, ind;
+				var pi2 = Math.PI * 2;
+				var l = cy.commands.length;
+
+				if (rad < 0) {
+					rad = pi2 + rad;
+				}
+				if (rad > pi2 || pi2 - rad < cy.unit.rad / 2) {
+					rad = 0;
+				}
+
+				ind = (rad % pi2) / Math.PI / 2 * l; // ind is the exact SAFE position in Array, without notions of numerous circles
+
+				return { index: Math.round(ind), rad: rad };
+			},
+			size: function () {
+				var cy = this;
+				return cy.commands.length;
+			},
+			launch: function (ind) {
+				var cy = this;
+
+				return cy.next(!!ind ? ind - cy.index : 0);
+			},
+			destroy: function () {
+				var cy = this;
+				var l = cy.commands.length;
+				for (var i = 0; i < l; i++)
+					cy.commands[i] = cy.commands[i].cancel();
+				for (var s in cy)
+					delete cy[s];
+			}
+
+		});
+
+		/* STEP */
+		/** @class Step
+		 *  @extends EventDispatcher
+		 *  A node in the address hierarchy tree. Each Step represents a page/route
+		 *  with open/close commands, parent/child relationships, and navigation state.
+		 *  Steps form a tree via `parentStep`, `children`, and `alphachildren`. */
+		var Step = Type.define({
+			pkg: 'step',
+			inherits: EventDispatcher,
+			domain: Type.appdomain,
+			statics: {
+				// STATIC VARS
+				hierarchies: {},
+				getHierarchies: function () { return Step.hierarchies },
+				// STATIC CONSTANTS
+				SEPARATOR: StringUtil.SLASH,
+				STATE_OPENED: "opened",
+				STATE_CLOSED: "closed"
+			},
+			commandOpen: undefined,
+			commandClose: undefined,
+			id: '',
+			path: '',
+			label: undefined,
+			depth: NaN,
+			index: NaN,
+			parentStep: undefined,
+			defaultStep: undefined,
+			ancestor: undefined,
+			hierarchyLinked: false,
+			children: [],
+			opened: false,
+			opening: false,
+			closing: false,
+			playhead: NaN,
+			looping: false,
+			isFinal: false,
+			way: 'forward',
+			state: '',
+			userData: undefined,
+			loaded: false,
+
+			// CTOR
+			constructor: Step = function Step(id, commandOpen, commandClose) {
+				Step.base.apply(this, []);
+
+				this.id = id;
+				this.label = PathUtil.replaceUnderscores(this.id);
+				this.children = [];
+				this.alphachildren = {};
+				this.depth = 0;
+				this.index = -1;
+				this.playhead = -1;
+				this.userData = {};
+				this.isFinal = false;
+
+				this.settings(commandOpen, commandClose);
+			},
+			settings: function (commandOpen, commandClose) {
+				var overwritesafe = CodeUtil.overwritesafe;
+				overwritesafe(this, 'commandOpen', commandOpen);
+				overwritesafe(this, 'commandClose', commandClose);
+			},
+			reload: function () {
+				var st = this;
+				var c = st.commandClose;
+				var $complete;
+
+				c.bind('$', $complete = function (e) {
+					c.unbind('$', $complete);
+					st.open();
+				});
+
+				st.close();
+			},
+			open: function () {
+				var st = this;
+				st._readyCalled = false;
+
+				if (st.opened && !st.closing) throw new Error('currently trying to open an already-opened step ' + st.path + ' ...')
+				st.opening = true;
+
+				if (st.isOpenable()) {
+					var o = st.commandOpen.execute();
+					st.dispatchOpening();
+
+					if (!!o) {
+						if (!Type.is(o, EventDispatcher)) throw new Error('supposed-to-be eventDispatcher is not one...', o);
+						var rrr;
+						o.bind(st.commandOpen.depth, rrr = function (e) {
+
+							o.unbind(st.commandOpen.depth, rrr);
+							st.checkOpenNDispatch();
+
+						});
+					} else st.checkOpenNDispatch();
+				} else st.checkOpenNDispatch();
+			},
+			close: function () {
+				var st = this;
+				st._readyCalled = false;
+				if (!st.opened && !st.opening) throw new Error('currently trying to close a non-opened step ' + st.path + ' ...')
+				st.closing = true;
+
+				if (st.isCloseable()) {
+
+					var o = st.commandClose.execute();
+					st.dispatchClosing();
+					if (!!o) {
+						if (!Type.is(o, EventDispatcher)) throw new Error('supposed-to-be eventDispatcher is not one...', o);
+						var rrr;
+						o.bind(st.commandClose.depth, rrr = function (e) {
+							e.target.unbind(st.commandClose.depth, rrr);
+							st.checkCloseNDispatch();
+						});
+					} else st.checkCloseNDispatch();
+				} else st.checkCloseNDispatch();
+			},
+			checkOpenNDispatch: function () { this.opened = true; this.opening = false; this.dispatchOpen() },
+			checkCloseNDispatch: function () { this.opened = false; this.closing = false; this.dispatchClose() },
+			dispatchOpening: function () { this.trigger('step_opening') },
+			dispatchOpen: function () { this.trigger('step_open') },
+			dispatchClosing: function () { this.trigger('step_closing') },
+			dispatchClose: function () { this.trigger('step_close') },
+			dispatchOpenComplete: function () { this.trigger(this.commandOpen.depth) },
+			dispatchCloseComplete: function () { this.trigger(this.commandClose.depth) },
+			dispatchFocusIn: function () { this.trigger('focusIn') },
+			dispatchFocusOut: function () { this.trigger('focusOut') },
+			dispatchCleared: function () { this.trigger('focus_clear') },
+
+			// DATA DESTROY HANDLING
+			destroy: function () {
+				var st = this;
+				if (Type.is(st.parentStep, Step) && st.parentStep.hasChild(st)) st.parentStep.remove(st);
+
+				if (st.isOpenable) st.commandOpen = st.destroyCommand(st.commandOpen);
+				if (st.isCloseable) st.commandClose = st.destroyCommand(st.commandClose);
+
+				if (!!st.userData) st.userData = st.destroyObj(st.userData);
+
+				if (st.children.length != 0) st.children = st.destroyChildren();
+				if (Type.is(st.ancestor, Step) && st.ancestor == st) {
+					if (st.id in Step.hierarchies) st.unregisterAsAncestor();
+				}
+
+				for (var s in this) {
+					delete this[s];
+				}
+
+				return undefined;
+			},
+			destroyCommand: function (c) { return !!c ? c.destroy() : c },
+			destroyChildren: function () { if (this.getLength() > 0) this.empty(true); return undefined },
+			destroyObj: function (o) {
+				for (var s in o) {
+					o[s] = undefined;
+					delete o[s];
+				}
+				return undefined;
+			},
+
+			setId: function setId(value) { this.id = value },
+			getId: function getId() { return this.id },
+			getIndex: function getIndex() { return this.index },
+			getPath: function getPath() { return this.path },
+			getDepth: function getDepth() { return this.depth },
+			// OPEN/CLOSE-TYPE (SELF) CONTROLS
+			isOpenable: function isOpenable() { return Type.is(this.commandOpen, Command) },
+			isCloseable: function isCloseable() { return Type.is(this.commandClose, Command) },
+			getCommandOpen: function getCommandOpen() { return this.commandOpen },
+			setCommandOpen: function setCommandOpen(value) { this.commandOpen = value },
+			getCommandClose: function getCommandClose() { return this.commandClose },
+			setCommandClose: function setCommandClose(value) { this.commandClose = value },
+			getOpening: function getOpening() { return this.opening },
+			getClosing: function getClosing() { return this.closing },
+			getOpened: function getOpened() { return this.opened },
+			// CHILD/PARENT REFLECT
+			getParentStep: function getParentStep() { return this.parentStep },
+			getAncestor: function getAncestor() { return Type.is(this.ancestor, Step) ? this.ancestor : this },
+			getChildren: function getChildren() { return this.children },
+			getNumChildren: function getNumChildren() { return this.children.length },
+			getLength: function getLength() { return this.getNumChildren() },
+			//HIERARCHY REFLECT
+			getHierarchies: function getHierarchies() { return Step.hierarchies },
+			getHierarchy: function getHierarchy() { return Step.hierarchies[id] },
+
+			// PLAY-TYPE (CHILDREN) CONTROLS
+			getPlayhead: function getPlayhead() { return this.playhead },
+			getLooping: function getLooping() { return this.looping },
+			setLooping: function setLooping(value) { this.looping = value },
+			getWay: function getWay() { return this.way },
+			setWay: function setWay(value) { this.way = value },
+			getState: function getState() { return this.state },
+			setState: function setState(value) { this.state = value },
+
+			getUserData: function getUserData() { return this.userData },
+			setUserData: function setUserData(value) { this.userData = value },
+
+			getLoaded: function getLoaded() { return this.loaded },
+			setLoaded: function setLoaded(value) { this.loaded = value },
+			getIsFinal: function getIsFinal() { return this.isFinal },
+			setIsFinal: function setIsFinal(value) { this.isFinal = value },
+
+			hasChild: function hasChild(ref) {
+				if (Type.is(ref, Step))
+					return this.getIndexOfChild(ref) != -1;
+				else if (Type.of(ref, 'string'))
+					return ref in this.alphachildren;
+				else
+					return ref in this.children();
+			},
+			getChild: function getChild(ref) {
+				var st = this;
+				if (ref === undefined) ref = null;
+				var child;
+				if (ref == null)  // REF IS NOT DEFINED
+					child = st.children[st.children.length - 1];
+				else if (Type.is(ref, Step)) { // HERE REF IS A STEP OBJECT
+					child = ref;
+					if (!st.hasChild(child)) throw new Error('step "' + child.id + '" is not a child of step "' + st.id + '"...');
+				} else if (Type.of(ref, 'string')) { // is STRING ID
+					child = st.alphachildren[ref];
+				} else { // is INT ID
+					if (ref == -1) child = st.children[st.children.length - 1];
+					else child = st.children[ref];
+				}
+				if (!Type.is(child, Step)) throw new Error('step "' + ref + '" was not found in step "' + st.id + '"...');
+
+				return child;
+			},
+			add: function add(child, childId) {
+				var st = this;
+				if (childId === undefined) childId = null;
+				var l = st.children.length;
+
+				if (!!childId) {
+					child.id = childId;
+				} else {
+					if (child.id === undefined)
+						child.id = l;
+					else {
+						childId = child.id;
+					}
+				}
+				st.children[l] = child; // write L numeric entry
+
+
+				if (Type.of(childId, 'string')) { // write Name STRING Entry
+					st.alphachildren[childId] = child;
+				}
+
+				return st.register(child);
+			},
+			remove: function remove(ref) {
+				var st = this;
+
+				if (ref === undefined) ref = -1;
+				var child = st.getChild(ref);
+				var n = st.getIndexOfChild(child);
+
+				if (Type.of(child.id, 'string')) {
+					st.alphachildren[child.id] = null;
+					delete st.alphachildren[child.id];
+				}
+
+				st.children.splice(n, 1);
+				if (st.playhead == n) st.playhead--;
+
+				return st.unregister(child);
+			},
+			empty: function empty(destroyChildren) {
+				if (destroyChildren === undefined) destroyChildren = true;
+				var l = this.getLength();
+				while (l--) destroyChildren ? this.remove().destroy() : this.remove();
+			},
+			register: function register(child, cond) {
+				var st = this, ancestor;
+				if (cond === undefined) cond = true;
+
+				if (cond) {
+					child.index = st.children.length - 1;
+					child.parentStep = st;
+					child.depth = st.depth + 1;
+					ancestor = child.ancestor = st.getAncestor();
+					child.path = (st.path !== undefined ? st.path : st.id) + Step.SEPARATOR + child.id;
+
+					if (!!Step.hierarchies[ancestor.id]) {
+						Step.hierarchies[ancestor.id][child.path] = child;
+					}
+
+				} else {
+					ancestor = child.ancestor;
+
+					if (!!Step.hierarchies[ancestor.id]) {
+						Step.hierarchies[ancestor.id][child.path] = undefined;
+						delete Step.hierarchies[ancestor.id][child.path];
+					}
+
+					child.index = - 1;
+					child.parentStep = undefined;
+					child.ancestor = undefined;
+					child.depth = 0;
+					child.path = undefined;
+				}
+				return child;
+			},
+			unregister: function unregister(child) { return this.register.apply(this, [child, false]) },
+			registerAsAncestor: function registerAsAncestor(cond) {
+				var st = this;
+				if (cond === undefined) cond = true;
+				if (cond) {
+					Step.hierarchies[st.id] = {};
+					st.ancestor = st;
+				} else {
+					if (st.id in Step.hierarchies) {
+						Step.hierarchies[st.id] = null;
+						delete Step.hierarchies[st.id];
+					}
+					st.ancestor = null;
+				}
+				return st;
+			},
+			unregisterAsAncestor: function unregisterAsAncestor() {
+				return this.registerAsAncestor(false)
+			},
+			linkHierarchy: function linkHierarchy(h) {
+				this.hierarchyLinked = true;
+				this.hierarchy = h;
+				return this;
+			},
+			unlinkHierarchy: function unlinkHierarchy(h) {
+				this.hierarchyLinked = false;
+				this.hierarchy = undefined;
+				delete this.hierarchy;
+				return this;
+			},
+			getIndexOfChild: function getIndexOfChild(child) {
+				return ArrayUtil.indexOf(this.children, child);
+			},
+			play: function play(ref) {
+				var st = this;
+				if (ref === undefined) ref = '$$playhead';
+				var child;
+				if (ref == '$$playhead') {
+					child = st.getChild(st.playhead);
+				} else {
+					child = st.getChild(ref);
+				}
+
+				var n = st.getIndexOfChild(child);
+
+				st.way = (n < st.playhead) ? 'backward' : 'forward';
+
+				if (n == st.playhead) {
+
+					if (n == -1) {
+						Logger.debug('requested step "' + ref + '" is not child of parent... ' + st.path);
+					} else {
+						Logger.debug('requested step "' + ref + '" is already opened... ' + st.path);
+					}
+
+					return n;
+				} else {
+					var curChild = st.children[st.playhead];
+
+					if (!Type.is(curChild, Step)) {
+						st.playhead = n;
+						child.open();
+					} else {
+						if (curChild.opened) {
+							var step_close2;
+							curChild.bind('step_close', step_close2 = function (e) {
+								e.target.unbind(e, step_close2);
+								child.open();
+								st.playhead = n;
+							});
+							curChild.close();
+						} else {
+							child.open();
+							st.playhead = n;
+						}
+					}
+				}
+				return n;
+			},
+			kill: function kill(ref) {
+				var st = this;
+				if (ref === undefined) ref = '$$current';
+				var child;
+				if (st.playhead == -1) return st.playhead;
+
+				if (ref == '$$current') {
+					child = st.getChild(st.playhead);
+				} else {
+					child = st.getChild(ref);
+				}
+
+				var n = st.getIndexOfChild(child);
+
+				child.close();
+				st.playhead = -1;
+				return n;
+			},
+			next: function next() {
+				this.way = 'forward';
+				if (this.hasNext()) return this.play(this.getNext());
+				else return -1;
+			},
+			prev: function prev() {
+				this.way = 'backward';
+				if (this.hasPrev()) return this.play(this.getPrev());
+				else return -1;
+			},
+			getNext: function getNext() {
+				var s = this.children[this.playhead + 1];
+				return this.looping ? Type.is(s, Step) ? s : this.children[0] : s;
+			},
+			getPrev: function getPrev() {
+				var s = this.children[this.playhead - 1];
+				return this.looping ? Type.is(s, Step) ? s : this.children[this.getLength() - 1] : s;
+			},
+			hasNext: function hasNext() { return this.getNext() ? true : this.looping },
+			hasPrev: function hasPrev() { return this.getPrev() ? true : this.looping },
+			// Navigating behaviors
+			handleNext: function () {
+				if (!this.parentStep) return this;
+				return this.parentStep.hasNext() ? this.parentStep.getNext() : this.parentStep.getChild(0);
+			},
+			handlePrev: function () {
+				if (!this.parentStep) return this;
+				return this.parentStep.hasPrev() ? this.parentStep.getPrev() : this.parentStep.getChild(this.parentStep.children.length - 1);
+			},
+			handleUp: function () {
+				return this.parentStep == Unique.instance ? this : this.parentStep || this;
+			},
+			handleDown: function () {
+				return this.defaultStep || this.children[0] || this;
+			},
+			dumpChildren: function dumpChildren(str) {
+				if (!!!str) str = '';
+				var chain = '                                                                            ';
+				this.children.forEach(function (el, i, arr) {
+					str += chain.slice(0, el.depth);
+					str += el;
+					if (parseInt(i + 1) in arr) str += '\n';
+				})
+				return str;
+			},
+			godFather: function () {
+				var s = this;
+				while (!!s.parentStep && s.parentStep !== Unique.instance) {
+					s = s.parentStep;
+				}
+				return s;
+			},
+			toString: function toString() {
+				var st = this;
+				return '[Step >>> id:' + st.id + ' , path: ' + st.path + ((st.children.length > 0) ? '[\n' + st.dumpChildren() + '\n]' + ']' : ']');
+			}
+		});
+
+		/** @class Unique
+		 *  @extends Step
+		 *  Singleton root step. One instance per application, registered under id `@`.
+		 *  All navigation starts from this root. */
+		var Unique = Type.define({
+			pkg: 'step',
+			inherits: Step,
+			domain: Type.appdomain,
+			constructor: Unique = function Unique() {
+				Unique.instance = this;
+				Unique.base.apply(this, ['@', new Command(this, function () {
+					var c = this;
+					var u = Unique.instance;
+
+					return this;
+				})]);
+			},
+			statics: {
+				instance: undefined,
+				/** @return {Unique} */
+				getInstance: function getInstance() { return Unique.instance || new Unique() }
+			},
+			addressComplete: function addressComplete(e) {
+			},
+			toString: function toString() {
+				var st = this;
+				return '[Unique >>> id:' + st.id + ' , path: ' + st.path + ((st.children.length > 0) ? '[\n' + st.dumpChildren() + '\n]' + ']' : ']');
+			}
+		});
+
+
+		/* ADDRESS — URL parsing */
+
+		/** @class Address
+		 *  URL parser that extracts protocol, host, path, hash, query string,
+		 *  and locale from an absolute URL string. */
+		var Address = Type.define({
+			pkg: 'net',
+			domain: Type.appdomain,
+			statics: {
+				address_re: /^((?:(https?|ftp):)\/\/(([\w\d.-]+)(?::(\d+))?))?(?:([^#?]+)(#[^?]+)?)?([?].+)?$/i
+			},
+			/** @param {string} str Full URL */
+			constructor: Address = function Address(str) {
+				var u = this;
+				u.absolute = str;
+
+				str.replace(Address.address_re, function () {
+					var $$ = ArrayUtil.argsToArray(arguments);
+
+					u.base = $$[1] || '';
+					u.protocol = $$[2] || '';
+					u.host = $$[3] || '';
+					u.hostname = $$[4] || '';
+					u.port = $$[5] || '';
+					u.path = $$[6] || '';
+
+					u.hash = $$[7] || '';
+					u.qs = $$[8] || '';
+					u.loc = '';
+
+					var loc_re = /\/([a-z]{2})(?=\/|$)/;
+
+					if (loc_re.test(u.path))
+						u.path = u.path.replace(loc_re, function () {
+							u.loc = arguments[1];
+							return '';
+						});
+					else if (loc_re.test(u.hash))
+						u.hash = u.hash.replace(loc_re, function () {
+							u.loc = arguments[1];
+							return '';
+						});
+
+					u.abshash = u.hash;
+					u.hash = u.hash.replace(StringUtil.HASH, '');
+
+					return '';
+				});
+			},
+			toString: function toString() {
+				return this.absolute;
+			}
+		});
+
+		/** @class HierarchyChanger
+		 *  Manages navigation state for a Hierarchy: tracks current path, temporary
+		 *  path, home path, and hash-based URL values. All paths are stored with
+		 *  trailing slashes trimmed. */
+		var HierarchyChanger = Type.define({
+			pkg: 'hierarchy',
+			domain: Type.appdomain,
+			statics: {
+				DEFAULT_PREFIX: StringUtil.HASH,
+				SEPARATOR: Step.SEPARATOR,
+				__re_multipleseparator: new RegExp('(' + Step.SEPARATOR + '){2,}'),
+				__re_qs: PathUtil.qs_re,
+				__re_path: PathUtil.path_re,
+				__re_endSlash: PathUtil.endslash_re,
+				__re_startSlash: PathUtil.startslash_re,
+				__re_hash: PathUtil.hash_re,
+				__re_abs_hash: PathUtil.abs_hash_re
+			},
+			hierarchy: undefined,
+			__value: StringUtil.EMPTY,
+			__currentPath: StringUtil.EMPTY,
+			__home: StringUtil.EMPTY,
+			__temporaryPath: StringUtil.EMPTY,
+
+			constructor: HierarchyChanger = function HierarchyChanger() {
+			},
+			/** @param {Hierarchy} val */
+			setHierarchy: function setHierarchy(val) { this.hierarchy = val },
+			/** @return {Hierarchy} */
+			getHierarchy: function getHierarchy() { return this.hierarchy },
+			/** @param {string} val Home path */
+			setHome: function setHome(val) { this.__home = PathUtil.trimlast(val) },
+			/** @return {string} */
+			getHome: function getHome() { return this.__home = PathUtil.trimlast(this.__home) },
+			/** @return {string} */
+			getValue: function getValue() { return this.__value },
+			/** Set the URL value and trigger hierarchy redistribution.
+			 *  @param {string} val */
+			setValue: function setValue(val) { this.hierarchy.redistribute(this.__value = val) },
+			/** @return {string} */
+			getCurrentPath: function getCurrentPath() { return this.__currentPath = PathUtil.trimlast(this.__currentPath) },
+			/** @param {string} val */
+			setCurrentPath: function setCurrentPath(val) { this.__currentPath = PathUtil.trimlast(val) },
+			/** @return {string|undefined} */
+			getTemporaryPath: function getTemporaryPath() { return (this.__temporaryPath !== undefined) ? this.__temporaryPath = PathUtil.trimlast(this.__temporaryPath) : undefined },
+			/** @param {string} val */
+			setTemporaryPath: function setTemporaryPath(val) { this.__temporaryPath = PathUtil.trimlast(val) },
+			/** Determine whether navigation stays on the same node branch.
+			 *  @return {number} 0 = same node, 1 = deeper, -1 = different branch */
+			leavesNode: function leavesNode() {
+				var c = this.__currentPath;
+				var t = this.__temporaryPath;
+				var ca = this.__currentPath.replace(/^.+\//, '');
+				var ta = this.__temporaryPath.replace(/^.+\//, '');
+				var cp = c.replace(ca, '');
+				var tp = t.replace(ta, '');
+
+				if (cp == tp) return 0;
+				if (t.test(c)) return 1;
+				else return -1;
+			},
+			getFutureDepth: function getFutureDepth() {
+				var t = this.__temporaryPath;
+				return t.split('/').length;
+			}
+		});
+
+		/** @class Hierarchy
+		 *  Navigation tree manager. Maintains the root Step, current/previous step,
+		 *  and a HierarchyChanger for URL state. Handles deep lookups, step
+		 *  redistribution (open/close), and focus management. */
+		var Hierarchy = Type.define({
+			pkg: 'hierarchy',
+			domain: Type.appdomain,
+			idTimeoutFocus: -1,
+			idTimeoutFocusParent: -1,
+			root: undefined,
+			previousStep: undefined,
+			currentStep: undefined,
+			changer: undefined,
+			exPath: '',
+			command: undefined,
+			constructor: Hierarchy = function Hierarchy() {
+			},
+			/** Set the root step and register it as ancestor.
+			 *  @param {Step} s
+			 *  @param {HierarchyChanger} [changer]
+			 *  @return {Step} */
+			/** Set the root step and register it as ancestor.
+			 *  @param {Step} s
+			 *  @param {HierarchyChanger} [changer]
+			 *  @return {Step} */
+			setAncestor: function setAncestor(s, changer) {
+				var hh = this;
+				hh.root = s;
+				hh.root.registerAsAncestor();
+				hh.root.linkHierarchy(this);
+
+				hh.currentStep = hh.root;
+
+				hh.changer = changer || new HierarchyChanger();
+				hh.changer.hierarchy = hh;
+
+				return s;
+			},
+			/** Add a step to the hierarchy.
+			 *  @param {Step}   step
+			 *  @param {string} [at] Path to parent step
+			 *  @return {Step} */
+			add: function add(step, at) {
+				return Type.of(at, 'string') ? this.getDeep(at).add(step) : this.root.add(step);
+			},
+			/** Remove a step from the hierarchy.
+			 *  @param {string|Step} id
+			 *  @param {string} [at] Path to parent
+			 *  @return {Step} */
+			remove: function remove(id, at) {
+				return Type.of(at, 'string') ? this.getDeep(at).remove(id) : this.root.remove(id);
+			},
+			/** Look up a step by its full path within this hierarchy.
+			 *  @param {string} path
+			 *  @return {Step|undefined} */
+			getDeep: function getDeep(path) {
+				var h = Step.hierarchies[this.root.id];
+				return (path === this.root.id) ? this.root : h[HierarchyChanger.__re_startSlash.test(path) ? path : HierarchyChanger.SEPARATOR + path];
+			},
+			/** Look up a step by path in an arbitrary hierarchy.
+			 *  @param {string} referenceHierarchy Ancestor id
+			 *  @param {string} path
+			 *  @return {Step|undefined} */
+			getDeepAt: function getDeepAt(referenceHierarchy, path) {
+				return Step.hierarchies[referenceHierarchy][path];
+			},
+			/** Walk up the parent chain to find the topmost step below the root.
+			 *  @param {Step} tg
+			 *  @param {Unique} [rt] Root override
+			 *  @return {Step} */
+			getTop: function getTop(tg, rt) {
+				while (tg.parentStep) {
+					if (tg.parentStep == (rt || Express.app.get('unique').getInstance())) return tg;
+					tg = tg.parentStep;
+				}
+				return tg;
+			},
+			/** Entry point for navigation. Stores the target path and launches the
+			 *  command sequence. If a navigation is already in progress, queues the path.
+			 *  @param {string} value Target path */
+			redistribute: function redistribute(value) {
+				var hh = this;
+				if (hh.isStillRunning()) {
+					hh.changer.setTemporaryPath(value);
+					Logger.debug('>> still running...')
+				} else {
+					hh.changer.setTemporaryPath(undefined);
+					hh.launchDeep(value);
+				}
+			},
+			/** Navigate to a path. Runs before-middleware, formulates commands,
+			 *  dispatches focusOut on the current step, and executes the command queue.
+			 *  @param {string} path */
+			launchDeep: function launchDeep(path) {
+				var hh = this;
+
+				var mw = Express.app.get('middleware') || [];
+				for (var i = 0; i < mw.length; i++) {
+					var layer = mw[i];
+					if (layer.after) continue;
+					if (layer.path === '/' || path.indexOf(layer.path) === 0 || layer.path === 'after') {
+						var result = layer.fn(path, hh);
+						if (result === false) return;
+					}
+				}
+
+				var arr = hh.formulate(path);
+				if (!!!arr) {
+					arr = [hh.createCommandError(path)];
+				}
+
+				var p = new CommandQueue(arr);
+				hh.command = p;
+				var current = hh.currentStep;
+				if (!!current) hh.previousStep = current;
+				if (Type.is(current, Unique)) {
+					hh.command.execute();
+				} else {
+					var foc_clear;
+					current.bind('focus_clear', foc_clear = function (e) {
+						current.unbind('focus_clear', foc_clear);
+						hh.command.execute();
+					});
+					current.dispatchFocusOut();
+				}
+				hh.command.bind('$', hh.onCommandComplete);
+			},
+			/** Callback when the navigation command queue completes.
+			 *  Runs after-middleware hooks. */
+			onCommandComplete: function onCommandComplete(e) {
+				var hh = AddressHierarchy.instance;
+				hh.clear();
+				if (Type.of(hh.root.addressComplete, "function"))
+					hh.root.addressComplete(e);
+				var mw = Express.app.get('middleware') || [];
+				var path = hh.changer.getCurrentPath();
+				for (var i = 0; i < mw.length; i++) {
+					var layer = mw[i];
+					if (layer.after) layer.fn(path, hh.currentStep);
+				}
+			},
+			/** Destroy the current command and unbind the completion listener. */
+			clear: function clear() {
+				var hh = this;
+
+				if (Type.is(hh.command, Command)) {
+					hh.command.unbind('$', hh.onCommandComplete);
+					hh.command = hh.command.destroy();
+				}
+			},
+			/** Check whether locale-based reload is needed.
+			 *  @return {boolean} */
+			getLocaleReload: function getLocaleReload() {
+				var hh = this;
+				if (Type.is(hh.currentStep, Express.app.get('unique')))
+					AddressHierarchy.localereload = false;
+				if (AddressHierarchy.localereload) {
+					return false;
+				}
+				return true;
+			},
+			/** Convert a path into an array of open/close/reload commands.
+			 *  Matches against the current step's children including regex/`:param`
+			 *  patterns. Returns a `createCommandError` array if no route matches.
+			 *  @param {string} path
+			 *  @return {Command[]} */
+			formulate: function formulate(path) {
+				var hh = this;
+				if (hh.command === undefined) hh.changer.setTemporaryPath(path);
+
+				var current = hh.currentStep;
+				var currentpath = hh.changer.getCurrentPath();
+				var temppath = hh.changer.getTemporaryPath();
+				var tempreg = new RegExp('^' + currentpath + '\/?');
+				var remainpath = temppath.replace(tempreg, '');
+
+				if (tempreg.test(temppath) && hh.getLocaleReload()) {
+
+
+					// in case current is an hacked step containing default step
+					if (PathUtil.endslash(path)) {
+						if (!!hh.getDeep(PathUtil.trimlast(path))) {
+							hh.state = hh.state;
+							return hh.createCommandOpen(path);
+						}
+						// Step doesn't exist — fall through to child matching and 404 creation
+					}
+					// in case current is an non-end default step
+					if (current.id == '') {
+						hh.state = 'idle';
+						return hh.createCommandClose(current.path);
+					}
+
+					var l = current.getLength();
+
+					while (l--) {
+						var regexp;
+						var child = current.getChild(l);
+
+						if (!!child.regexp) {
+
+							regexp = child.regexp;
+
+							if (regexp.test(remainpath)) {
+
+								var chunk;
+								var params = {};
+								remainpath.replace(regexp, function () {
+									chunk = arguments[0];
+									return '';
+								});
+								if (child.paramNames && child.paramNames.length) {
+									var matches = regexp.exec(remainpath);
+									if (matches) {
+										for (var pi = 1; pi < matches.length; pi++) {
+											params[child.paramNames[pi - 1]] = matches[pi];
+										}
+									}
+								}
+
+								var def = PathUtil.ensurelast(current.path) + chunk;
+								if (!!!hh.getDeep(def)) {
+									Express.app.get(chunk, child.handler);
+									var resp = hh.getDeep(def);
+									resp.regexp = child.regexp;
+									resp.userData = child.userData;
+									if (child.paramNames) resp.paramNames = child.paramNames;
+								}
+								var resp = hh.getDeep(def);
+								if (resp && Object.keys(params).length) {
+									resp.userData.params = params;
+								}
+
+								hh.state = 'descending';
+								return hh.createCommandOpen(def, {});
+
+							}
+
+						} else {
+							regexp = new RegExp('^' + child.id);
+							if (regexp.test(remainpath)) {
+								hh.state = 'descending';
+								return hh.createCommandOpen(child.path);
+							}
+						}
+					}
+
+					// No child matched — create a live 404 step
+					if (remainpath) {
+						var failedSegment = remainpath.split('/')[0];
+						if (failedSegment) {
+							var failedPath = PathUtil.ensurelast(current.path) + failedSegment;
+							if (!!!hh.getDeep(failedPath)) {
+								var handler = Express.app.get('404handler');
+								if (!handler) {
+									handler = function (req, res) {
+										if (res.opening) {
+											res.userData.urljade = '/jade/404.jade';
+											res.userData.parameters = { response: res };
+										}
+										return res;
+									};
+								handler['@toggle'] = function (e) {
+									var res = e.target;
+									if (res.opening) {
+										$('.navzone, .contentzone').addClass('hidden');
+										res.render(res.userData.urljade, res.userData.parameters, function () {
+											var container = Express.app.get('404container') || '.zoneall';
+											res.template.appendTo(container);
+											res.ready();
+										});
+									} else {
+										$('.navzone, .contentzone').removeClass('hidden');
+										if (res.template) res.template.remove();
+										res.ready();
+									}
+								};
+									handler['@focus'] = function (e) {
+										var res = e.target;
+										if (e.type == 'focusIn') {
+											var ln = $('.langswitch');
+											if (ln.size()) {
+												ln.find('a').each(function (i, el) {
+													var href = $(el).attr('href') || '';
+													var sss = href.substr(0, 4) + res.path;
+													sss = sss.replace(/\/+$/g, '') + '/';
+													$(el).attr('href', sss);
+												});
+											}
+										} else {
+											res.focusReady();
+										}
+									};
+								}
+								Express.app.get(failedSegment, handler, current);
+								var resp = hh.getDeep(failedPath);
+								if (resp) {
+									resp.is404 = true;
+									resp.userData.failedPath = temppath;
+								}
+							}
+							hh.state = 'descending';
+							return hh.createCommandOpen(failedPath, {});
+						}
+					}
+					// Same path, no remainpath — reload 404 step in place
+					if (current && current.is404) {
+						return hh.createCommandReload(current.path);
+					}
+				}
+				// if still didnt find shit, close the current
+				hh.state = 'ascending';
+				return hh.createCommandClose(current.path);
+
+			},
+			/** Create an error command for an unmatched path.
+			 *  @param {string} path
+			 *  @return {Command} */
+			createCommandError: function createCommandError(path) {
+				var hh = this;
+				Logger.error('Error State for path: ' + path);
+				hh.clear();
+
+				var c = new Command(hh, hh.openErrorCommand);
+				c.params = [path, c];
+				return c;
+			},
+			/** Open a placeholder 404 step for error recovery.
+			 *  @param {string}  path
+			 *  @param {Command} c */
+			openErrorCommand: function openErrorCommand(path, c) {
+				var hh = c.context;
+				var st = new Step('404', new Command(hh, function () {
+					// no-op open handler — step serves as visual error placeholder
+				}, true), new Command(hh, function () {
+					// no-op close handler — enables isCloseable so close() doesn't throw
+				}));
+				var st_open;
+				st.bind('step_open', st_open = function () {
+					st.unbind('step_open', st_open);
+					c.dispatchComplete();
+				});
+				st.open();
+				return st;
+			},
+			/** If a navigation is in progress, queue this path; otherwise navigate now.
+			 *  @param {string} path */
+			checkRunning: function checkRunning(path) {
+				var hh = this;
+				if (hh.isStillRunning()) {
+					hh.command.add(hh.formulate(path));
+				} else {
+					hh.redistribute(path);
+				}
+			},
+			/** @param {string} path
+			 *  @return {Command} */
+			createCommandOpen: function createCommandOpen(path) {
+				var c = new Command(this, this.openCommand);
+				c.params = [path, c];
+				return c;
+			},
+			/** Open a step and set it as the current step. Async — waits for `step_open`.
+			 *  @param {string} path
+			 *  @param {Command} c
+			 *  @return {Step} */
+			openCommand: function openCommand(path, c) {
+
+				var hh = c.context;
+				var st_open, st;
+
+				try {
+					st = hh.getDeep(path);
+
+					st.bind('step_open', st_open = function (e) {
+
+						st.unbind('step_open', st_open);
+						hh.changer.setCurrentPath(PathUtil.trimfirst(st.path));
+
+						hh.currentStep = st;
+						hh.currentStep.state = Step.STATE_OPENED;
+
+						hh.treatSequence(function () {
+							c.dispatchComplete();
+						});
+
+					});
+
+					st.parentStep.play(st.id);
+
+					return st;
+				} catch (e) {
+					if (st_open && st) st.unbind('step_open', st_open);
+					c.dispatchComplete();
+					throw e;
+				}
+			},
+			/** @param {string} path
+			 *  @return {Command} */
+			createCommandClose: function createCommandClose(path) {
+				var c = new Command(this, this.closeCommand);
+				c.params = [path, c];
+				return c;
+			},
+			/** Close a step. Async — waits for `step_close`.
+			 *  @param {string} path
+			 *  @param {Command} c
+			 *  @return {Step} */
+			closeCommand: function closeCommand(path, c) {
+				var hh = c.context;
+				var st, st_close;
+
+				try {
+					st = hh.getDeep(path);
+
+					st.bind('step_close', st_close = function (e) {
+						st.unbind('step_close', st_close);
+
+						st.state = Step.STATE_CLOSED;
+
+						var parentStep = st.parentStep;
+
+						// Remove dynamic regex-matched and 404 steps before parent resumes navigation
+						if (Express.app.get('liveautoremove') == true)
+							if (st.is404 || (!!st.regexp && /[^\w]/.test(st.regexp.source)))
+								Express.app.removeResponse(st);
+
+						hh.changer.setCurrentPath(PathUtil.trimfirst(parentStep.path));
+
+						hh.currentStep = parentStep;
+
+						hh.treatSequence(function () {
+							c.dispatchComplete();
+						});
+
+					});
+
+					st.parentStep.kill(st.id);
+
+					return st;
+				} catch (e) {
+					if (st_close && st) st.unbind('step_close', st_close);
+					c.dispatchComplete();
+					throw e;
+				}
+			},
+			/** @param {string} path
+			 *  @return {Command} */
+			createCommandReload: function createCommandReload(path) {
+				var c = new Command(this, this.reloadCommand);
+				c.params = [path, c];
+				return c;
+			},
+			/** Reload a step by closing then re-opening it.
+			 *  Also re-renders parent templates if available.
+			 *  @param {string} path
+			 *  @param {Command} c
+			 *  @return {Step} */
+			reloadCommand: function reloadCommand(path, c) {
+				var hh = c.context;
+				var st = hh.getDeep(path);
+				if (!st) { c.dispatchComplete(); return; }
+				var parent = st.parentStep;
+				var doReload = function () {
+					var st_reload;
+					st.bind('step_open', st_reload = function (e) {
+						st.unbind('step_open', st_reload);
+						c.dispatchComplete();
+					});
+					st.reload();
+				};
+				if (parent && parent.userData && parent.userData.urljade) {
+					parent.render(parent.userData.urljade, parent.userData.parameters, function () {
+						var $section = parent.template;
+						$('.navzone').html($section.find('.navzone').html());
+						$('.contentzone').html($section.find('.contentzone').html());
+						if (parent.templateB) {
+							parent.render('/jade/artists/contenttest.jade', parent.userData.parameters, function () {
+								var oldB = parent.templateB;
+								var newB = parent.template;
+								if (oldB && oldB.length) {
+									oldB.replaceWith(newB);
+								}
+								parent.templateB = newB;
+								doReload();
+							});
+						} else {
+							doReload();
+						}
+					});
+				} else {
+					doReload();
+				}
+				return st;
+			},
+			/** After a step opens, check if navigation is complete or if more
+			 *  descendants need to be opened (via defaultStep or remaining path).
+			 *  @param {Function} [closure] Called after processing */
+			treatSequence: function treatSequence(closure) {
+				var hh = this;
+
+				var current = hh.currentStep;
+				var currentpath = hh.changer.getCurrentPath();
+				var temppath = hh.changer.getTemporaryPath();
+
+				var remainpath = temppath.replace(new RegExp('^' + currentpath + '\/?'), '');
+				var cond = remainpath == '' || current.is404;
+
+				if (temppath == '') cond = cond && currentpath == temppath;
+
+				if (cond) {
+					if (!!current.defaultStep && !current.is404) {
+						hh.checkRunning(current.defaultStep.path);
+					} else {
+						current.dispatchFocusIn();
+					}
+				} else {
+					hh.checkRunning(temppath);
+				}
+
+				if (!!closure) closure();
+			},
+			/** @return {boolean} Whether a command queue is active */
+			isStillRunning: function isStillRunning() { return Type.is(this.command, Command) },
+			/** @return {Step} */
+			getRoot: function getRoot() { return this.root },
+			getCurrentStep: function getCurrentStep() { return this.currentStep },
+			getPreviousStep: function getPreviousStep() { return this.previousStep },
+			getChanger: function getChanger() { return this.changer },
+			getCommand: function getCommand() { return this.command }
+		});
+
+		/** @class AddressHierarchy
+		 *  @extends Hierarchy
+		 *  URL hash-based hierarchy with locale support. Integrates with AddressChanger
+		 *  to listen to hashchange events and route them through the step tree.
+		 *  @singleton — accessed via `AddressHierarchy.instance` */
+		var AddressHierarchy = Type.define({
+			pkg: 'hierarchy',
+			inherits: Hierarchy,
+			domain: Type.appdomain,
+			statics: {
+				parameters: {
+					home: '',
+					base: location.protocol + '//' + location.host + location.pathname,
+					useLocale: true
+				},
+				baseAddress: new Address(location.href),
+				unique: undefined,
+				localereload: false,
+				/** @return {boolean} Whether the current page URL matches the configured base */
+				isReady: function isReady() {
+					var address = AddressHierarchy.baseAddress;
+					var base = address.base + address.path;
+					return (base == AddressHierarchy.parameters.base);
+				},
+				/** Create the singleton AddressHierarchy instance.
+				 *  @param {Function} [uniqueclass] Constructor for the root step
+				 *  @return {AddressHierarchy} */
+				create: function create(uniqueclass) {
+					if (!!!Express.app.get('unique')) Express.app.set('unique', uniqueclass || Unique);
+					return AddressHierarchy.hierarchy = new AddressHierarchy(Express.app.get('unique'));
+				},
+				/** Configure parameters.
+				 *  @param {Object} params
+				 *  @return {AddressHierarchy} (static) */
+				setup: function setup(params) {
+					for (var s in params)
+						AddressHierarchy.parameters[s] = params[s];
+					return AddressHierarchy;
+				}
+			},
+			hierarchy: undefined,
+			/** @param {Function} s Unique class constructor */
+			constructor: AddressHierarchy = function AddressHierarchy(s) {
+				AddressHierarchy.base.call(this);
+				this.changer = new AddressChanger();
+				AddressHierarchy.instance = this;
+				this.initAddress(s);
+			},
+			/** Strip the leading locale prefix from a path.
+			 *  @param {string} value The URL path
+			 *  @return {string} Path without locale prefix */
+			sliceLocale: function sliceLocale(value) {
+				var changer = this.changer,
+					startSlash = HierarchyChanger.__re_startSlash,
+					endSlash = HierarchyChanger.__re_endSlash,
+					path = '',
+					lang = '';
+
+				path = value.replace(/^[a-z]{2}\//i, function ($0, $1) {
+					lang = $1;
+					return '';
+				});
+
+				return PathUtil.trimall(path);
+			},
+			/** Set up the address changer and navigate to the initial route.
+			 *  @param {Function} s Unique class constructor */
+			initAddress: function initAddress(s) {
+				this.changer.enable(location, this, s);
+				Logger.info('JSADDRESS inited @' + AddressHierarchy.parameters.base + ' > with hash > ' + location.hash);
+			},
+			/** Navigate to a value (path), stripping locale first.
+			 *  @param {string} value */
+			redistribute: function redistribute(value) {
+				var hh = this;
+				value = hh.sliceLocale(value);
+				AddressHierarchy.factory.redistribute.apply(this, [value]);
+			},
+			/** Navigate to a path (maintains locale).
+			 *  @param {string} seek */
+			headTo: function headTo(seek) {
+				this.changer.setValue(PathUtil.ensureall(this.changer.locale + seek));
+			}
+		});
+
+		/** @class AddressChanger
+		 *  @extends HierarchyChanger
+		 *  Hash-based URL manager. Listens for `hashchange` events, extracts locale
+		 *  from the hash, updates i18next language, and triggers hierarchy navigation. */
+		var AddressChanger = Type.define({
+			pkg: 'hierarchy',
+			inherits: HierarchyChanger,
+			domain: Type.appdomain,
+			statics: {
+				/** Convert a URL to a hash-based route.
+				 *  @param {string} href
+				 *  @return {string} */
+				hashEnable: function hashEnable(href) {
+					return '#' + href.replace(new RegExp(window.location.protocol + '//' + window.location.host), '').replace(/\/*$/, '/').replace(/^\/*/, '/').replace(/\/\/+/, '/');
+				},
+				/** @param {string} str
+				 *  @return {boolean} */
+				hasMultipleSeparators: function hasMultipleSeparators(str) {
+					return (!!str) ? HierarchyChanger.__re_multipleseparator.test(str) : str;
+				},
+				/** @param {string} str
+				 *  @return {string} */
+				removeMultipleSeparators: function removeMultipleSeparators(str) {
+					return (!!str) ? str.replace(HierarchyChanger.__re_multipleseparator, StringUtil.SLASH) : str;
+				}
+			},
+			roottitle: document.title,
+			skipHashChange: false,
+			constructor: AddressChanger = function AddressChanger(s) {
+				AddressChanger.base.call(this);
+			},
+			/** Initialise the URL hash listener, extract locale, and navigate to initial route.
+			 *  @param {Location}  loc          window.location
+			 *  @param {Hierarchy} hierarchy    The hierarchy to control
+			 *  @param {Function}  uniqueClass  Root step constructor
+			 *  @return {boolean} */
+			enable: function enable(loc, hierarchy, uniqueClass) {
+				var ch = this;
+				ch.weretested = false;
+				var hh = ch.hierarchy = hierarchy;
+				var initLocale = document.documentElement.getAttribute('lang') || AddressHierarchy.parameters.defaultLocale;
+				var a = ch._extractUrlParts(loc);
+				if (ch._ensureHashRoute(a, initLocale)) return;
+				ch._initLocale(a, initLocale);
+				hh.setAncestor(uniqueClass.getInstance(), ch);
+				ch._bindHashChange();
+				ch._initialNavigate();
+				return true;
+			},
+			/** Parse the current URL into an Address object.
+			 *  @param {Location} loc
+			 *  @return {Address} */
+			_extractUrlParts: function _extractUrlParts(loc) {
+				this._baseAddress = new Address(loc.href);
+				return this._baseAddress;
+			},
+			/** If the URL doesn't already have a hash route, redirect to one.
+			 *  @param {Address} a
+			 *  @param {string}  initLocale
+			 *  @return {boolean} True if redirect was needed */
+			_ensureHashRoute: function _ensureHashRoute(a, initLocale) {
+				var ch = this;
+				var abshashReg = HierarchyChanger.__re_abs_hash;
+				if (!abshashReg.test(a.absolute)) {
+					ch.weretested = true;
+					ch.locale = (a.loc != '' ? a.loc : initLocale);
+					if (a.path === '/' && a.loc === '') {
+						location.hash = '#' + HierarchyChanger.SEPARATOR + ch.locale + a.path + a.qs;
+					} else {
+						location.href = a.base + '#' + HierarchyChanger.SEPARATOR + ch.locale + a.path + a.qs;
+						return true;
+					}
+				}
+				return false;
+			},
+			/** Set the locale from the URL or fall back to the document lang attribute.
+			 *  @param {Address} a
+			 *  @param {string}  initLocale */
+			_initLocale: function _initLocale(a, initLocale) {
+				this.locale = this.locale || a.loc;
+				if (this.locale == '') this.locale = initLocale;
+			},
+			/** Bind jQuery `hashchange` event to drive hierarchy navigation.
+			 *  Handles locale switching, i18next language change, and path normalisation. */
+			_bindHashChange: function _bindHashChange() {
+				var ch = this;
+				var hh = ch.hierarchy;
+				var a = ch._baseAddress;
+				var separator = HierarchyChanger.SEPARATOR;
+				var endSlashReg = HierarchyChanger.__re_endSlash;
+				var home = AddressHierarchy.parameters.home;
+
+				$(window).bind('hashchange', function (e) {
+					var address = a.base + a.path + location.hash;
+					var add = new Address(address);
+					var h = add.hash;
+					var loc = '';
+					if (AddressHierarchy.parameters.useLocale) {
+						if (add.loc == '') {
+							return ch.setValue(separator + ch.locale + h + add.qs);
+						}
+						if (add.loc !== ch.locale) {
+							ch.locale = add.loc;
+						}
+						if (ch.locale != document.documentElement.getAttribute('lang')) {
+							document.documentElement.setAttribute('lang', ch.locale);
+							if (undefined !== window['i18next']) i18next.changeLanguage(ch.locale);
+						}
+						loc = separator + add.loc;
+					}
+					if (AddressChanger.hasMultipleSeparators(h))
+						return ch.setValue(loc + AddressChanger.removeMultipleSeparators(h));
+					if (h == '/' && home != '')
+						return ch.setValue(loc + h + (home == '' ? home : home + separator) + add.qs);
+					if (!endSlashReg.test(h))
+						return ch.setValue(loc + add.hash + separator + add.qs);
+					hh.redistribute(add.hash);
+				});
+			},
+			/** Open the root step, then trigger hashchange to navigate to the initial route. */
+			_initialNavigate: function _initialNavigate() {
+				var hh = this.hierarchy;
+				var ch = this;
+				var uniquehandler;
+				hh.root.bind('step_open', uniquehandler = function (e) {
+					hh.root.unbind('step_open', uniquehandler);
+				if (!!window.opera) ch.weretested = false;
+				if (ch.weretested === false) {
+						var str = location.hash.replace('#/', '').replace(ch.locale, '');
+						if (str == '/' && ch.getValue() == '' && AddressHierarchy.parameters.home == '' && Unique.getInstance().getChild('') === undefined)
+							return;
+						else
+							$(window).trigger('hashchange');
+					}
+				});
+				hh.root.open();
+			},
+			/** @return {string} The current location hash */
+			getValue: function getValue() {
+				return this.__value = location.hash;
+			},
+			/** Set the location hash (triggers navigation).
+			 *  @param {string} newVal */
+			setValue: function setValue(newVal) {
+				location.hash = this.__value = newVal;
+			},
+			/** Set the URL hash to match a given step.
+			 *  @param {Step} step */
+			setStepValue: function setStepValue(step) {
+
+				var loc = '';
+				if (AddressHierarchy.parameters.useLocale) {
+					loc = '/' + this.locale;
+				}
+
+				this.setValue('#' + loc + step.path + '/');
+			},
+			/** Update the document title (prepends roottitle).
+			 *  @param {string} title */
+			setTitle: function setTitle(title) {
+				document.title = this.roottitle + '  ' + title;
+			}
+		});
+
+
+		/* RESPONSE — page/route handler class */
+
+		/** @class Response
+		 *  @extends Step
+		 *  A route handler in the StrawExpress framework. Wraps a Step with focus
+		 *  management, scrolling, rendering (AJAX/jQuery template loading), named
+		 *  route parameters (`/:id`), and regexp-based dynamic path matching.
+		 *  The default open/close commands handle focus events and template rendering. */
+		var Response = Type.define({
+			pkg: 'response',
+			inherits: Step,
+			domain: Type.appdomain,
+			/** @param {string}   id
+			 *  @param {string}   [pattern]  Route pattern (may include `/:param` or regex)
+			 *  @param {Command}  [commandOpen]
+			 *  @param {Command}  [commandClose] */
+			constructor: Response = function Response(id, pattern, commandOpen, commandClose) {
+
+				var res = this;
+				var focus = function (e) {
+					if (e.type == 'focusIn') {
+						AddressHierarchy.instance.changer.setTitle(this.name);
+						if (Express.app.get('savescroll') !== false && res.userData._scrollTop !== undefined) {
+							setTimeout(function () { $(window).scrollTop(res.userData._scrollTop); }, 0);
+						}
+					} else {
+						if (Express.app.get('savescroll') !== false) {
+							res.userData._scrollTop = $(window).scrollTop();
+						}
+					}
+				};
+
+				Response.base.apply(this, [
+					id,
+					commandOpen || new Command(res, function resCommandOpen() {
+						// trace('opening "'+ res.path+ '"') ;
+						var c = this;
+
+						try { res.unbind('focusIn', focus); } catch(e) {}
+						try { res.unbind('focusOut', focus); } catch(e) {}
+
+						res.bind('focusIn', focus);
+						res.bind('focusOut', focus);
+
+						if (!!res.responseAct) {
+
+							var rr = res.responseAct(res.id, res);
+							if (!!rr) {
+								return rr;
+							}
+						}
+
+						return c;
+					}),
+					commandClose || new Command(res, function resCommandClose() {
+						// trace('closing "'+ res.path+ '"') ;
+						var c = this;
+
+						if (!!res.responseAct) {
+							var rr = res.responseAct(res.id, res);
+							if (!!rr) {
+								try {
+									return rr;
+								} catch (e) {
+									throw e;
+								} finally {
+									try { res.unbind('focusIn', focus); } catch(e) {}
+									try { res.unbind('focusOut', focus); } catch(e) {}
+								}
+							}
+						}
+						try { res.unbind('focusIn', focus); } catch(e) {}
+						try { res.unbind('focusOut', focus); } catch(e) {}
+
+						return c;
+					})
+				]);
+
+				// Named parameter routes (e.g., /user/:id)
+				var idCleaned = (pattern || id).replace(/(^\/|\/$)/g, '');
+				if (idCleaned.indexOf(':') !== -1) {
+					var paramNames = [];
+					var paramRegexStr = idCleaned.replace(/:([a-zA-Z_]\w*)/g, function (m, name) {
+						paramNames.push(name);
+						return '([^/]+)';
+					});
+					res.regexp = new RegExp('^' + paramRegexStr + '$');
+					res.paramNames = paramNames;
+				} else if (pattern !== '/' && PathUtil.allslash(pattern)) {
+					// Cast regexp Steps — pattern content (between slashes) is intentional regex
+					res.regexp = new RegExp(PathUtil.trimall(pattern));
+				}
+
+				return res;
+			},
+			/** Signal that the response is ready (idempotent via `_readyCalled` guard).
+			 *  Dispatches the current command's completion event after a 1ms timeout.
+			 *  @return {Response} this */
+			ready: function ready() {
+				if (this._readyCalled) return this;
+				this._readyCalled = true;
+				var st = this;
+				setTimeout(function () {
+					(st.opening ? st.commandOpen : st.commandClose).dispatchComplete();
+				}, 1);
+				return this;
+			},
+			/** Clear focus (trigger `focus_clear`). */
+			focusReady: function focusReady() { this.dispatchCleared(); return this; },
+			/** Placeholder for JSON data fetching.
+			 *  @param {string} urljson
+			 *  @param {Object} params
+			 *  @return {Object} params */
+			fetch: function (urljson, params) {
+				return params;
+			},
+			/** Generate a random hash for cache-busting.
+			 *  @return {string} */
+			generateHash: function () { return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) },
+			/** Load a template via AJAX and render with callback.
+			 *  Uses Jade for `.jade` templates, plain HTML otherwise.
+			 *  @param {string}   url      Template URL
+			 *  @param {Object}   params   Jade/i18n parameters
+			 *  @param {Function} callback Called with rendered jQuery element
+			 *  @return {Response} this */
+			render: function (url, params, callback) {
+
+				var res = this, args;
+
+				// var hash = '' ;
+				var hash = '?' + this.generateHash();
+
+				var request, t;
+
+				if (!!callback) { // switch to ASYNC MODE
+
+					args = [].slice.call(arguments);
+					url = args.shift();
+					params = args.shift();
+					callback = args.shift();
+
+					try {
+						request = new Request().load(true, url + hash, function (jxhr, r) {
+							t = request.response;
+							res.packResponse(t, url, params, function(template){
+								res.template = template ;
+								callback.apply(res, [].concat(args));
+							});
+						}, null, function (r, url) {
+							Logger.error('Template render XHR failed: ' + url);
+							res.packResponse('', url, params, function(template){
+								res.template = template;
+								callback.apply(res, [].concat(args));
+							});
+						});
+					} catch (e) {
+						Logger.error('LoadModuleError: ' + url + ' not found');
+						res.packResponse('', url, params, function(template){
+							res.template = template;
+							callback.apply(res, [].concat(args));
+						});
+					}
+				} else {
+					throw new Error('StraExpress : Should provide a callback for Async loading of template...')
+				}
+
+				return res;
+			},
+			/** Parse a Jade template string (or HTML) and wrap in jQuery, passing to callback.
+			 *  Handles Jade render errors gracefully by passing an empty jQuery set.
+			 *  @param {string}   t      Raw template text
+			 *  @param {string}   url    Template URL (for error reporting)
+			 *  @param {Object}   params Jade/i18n parameters
+			 *  @param {Function} cb     Callback: fn(jQueryElement) */
+			packResponse: function (t, url, params, cb) {
+
+				if (!!!url || !!!params) {
+					Logger.warn('StraExpress packResponse: missing url or params');
+					return this;
+				}
+
+				params.filename = url;
+				params.lang = document.documentElement.getAttribute('lang');
+				params.t = i18next.t;
+				params.cache = params.cache || true;
+				
+				var isJade = /.jade$/.test(url) ;
+				var template ;
+				if(isJade){
+
+					jade.render(t, params, function(err, resp){
+						if (err) {
+							Logger.error('Jade render error: ' + url + ' — ' + err.message);
+							template = $([]);
+						} else {
+							template = $(resp);
+						}
+						cb(template) ;
+					}) ;
+
+				}else{
+
+					template = $(t) ;
+					cb(template) ;
+
+				} 
+			},
+			/** Sync render (stub for server-side or simpler use).
+			 *  @param {string} t
+			 *  @param {string} url
+			 *  @param {Object} params
+			 *  @return {jQuery} */
+			send: function (t, url, params) {
+
+				params.filename = url;
+				var s = jade.render(t, params);
+
+				return $(s);
+			},
+			/** Check whether this step is a dynamically matched (live) route
+			 *  based on its regexp pattern containing non-word characters.
+			 *  @return {boolean} */
+			isLiveStep: function () {
+				var res = this;
+				if (!!res.regexp) {
+					if (/[^\w]/.test(res.regexp.source))
+						return true;
+				}
+				return false;
+			}
+		});
+
+		/* StrawExpress App — the main Express singleton */
+
+		/** @class Express
+		 *  @static
+		 *  The main application singleton. Manages route registration (Express.get()),
+		 *  settings (Express.app.set()/get()), middleware, template rendering,
+		 *  event dispatch, and the AddressHierarchy lifecycle.
+		 *  Access the singleton via `Express.app`.
+		 *  @singleton */
+		var Express = Type.define({
+			pkg: '::Express',
+			domain: Type.appdomain,
+			statics: {
+				app: undefined,
+				disp: new EventDispatcher(window),
+				/** Create the singleton `Express.app` instance. */
+				initialize: function () {
+					if (!!window.trace && 'debug' in window) trace('Express >> App Instanciated');
+					Express.app = new Express();
+				}
+			},
+			settings: {
+				'env': 'development',
+				'views': undefined,
+				'liveautoremove': true,
+				'middleware': [],
+				'savescroll': true
+			},
+			/** Destroy the unique instance if it exists. */
+			destroy: function destroy() {
+				if (!!Unique.instance) Unique.instance = Unique.getInstance().destroy();
+			},
+			/** @param {Window} [win]
+			 *  @return {Express} Always returns the singleton */
+			constructor: Express = function Express(win) {
+				return !!Express.app ? Express.app : this;
+			},
+			/** Safe jQuery existence test: returns the jQuery object if non-empty, undefined otherwise.
+			 *  @param {string|jQuery} sel
+			 *  @param {string} [sel2] Nested selector
+			 *  @return {jQuery|undefined} */
+			Qexists: function Qexists(sel, sel2) {
+				if (!!sel2) sel = $(sel).find(sel2);
+				sel = Type.is(sel, $) ? sel : $(sel);
+				var s = new Boolean(sel.length);
+				s.target = sel;
+				return (s.valueOf()) ? s.target : undefined;
+			},
+			/** Bind a global Express event listener.
+			 *  @param {string}   type
+			 *  @param {Function} closure
+			 *  @return {Express} this */
+			listen: function listen(type, closure) {
+				Express.disp.bind(type, closure);
+				return this;
+			},
+			/** Trigger a global Express event.
+			 *  @param {string} type
+			 *  @return {Express} this */
+			trigger: function trigger(type) {
+				Express.disp.trigger(type);
+				return this;
+			},
+			/** @param {string} type
+			 *  @return {boolean} */
+			willTrigger: function willTrigger(type) {
+				return Express.disp.willTrigger(type);
+			},
+			/** @param {string} type
+			 *  @return {boolean} */
+			willTriggerNow: function willTriggerNow(type) {
+				return Express.disp.willTriggerNow(type);
+			},
+			/** Fire a global Express event (synchronous dispatch).
+			 *  @param {string} type
+			 *  @return {Express} this */
+			fire: function fire(type) {
+				Express.disp.fire(type);
+				return this;
+			},
+			/** Unbind a global Express event listener.
+			 *  @param {string}   type
+			 *  @param {Function} closure
+			 *  @return {Express} this */
+			discard: function discard(type, closure) {
+				Express.disp.unbind(type, closure);
+				return this;
+			},
+			/** Register middleware (navigation guard or after-hook).
+			 *  - `use(fn)` — global before-guard
+			 *  - `use('/path', fn)` — scoped before-guard
+			 *  - `use('after', fn)` — post-navigation hook
+			 *  Before-guards that return `false` cancel navigation.
+			 *  @param {string|Function} route Path, 'after', or function
+			 *  @param {Function} [fn]
+			 *  @return {Express} this */
+			use: function use(route, fn) {
+				// Express-like middleware: use(fn) for global, use('/path', fn) for scoped, use('after', fn) for post-navigation
+				if (!Type.of(route, 'string'))
+					fn = route, route = '/';
+				if (route === 'after') {
+					this.settings.middleware.push({ path: route, fn: fn, after: true });
+				} else {
+					this.settings.middleware.push({ path: route, fn: fn });
+				}
+				return this;
+			},
+			/** Placeholder for address configuration (fluent).
+			 *  @param {Object} params
+			 *  @return {Express} this */
+			address: function address(params) {
+				return this;
+			},
+			/** @return {boolean} Whether the hierarchy is ready */
+			isReady: function () {
+				return AddressHierarchy.isReady();
+			},
+			/** Initialise the AddressHierarchy (setup + create).
+			 *  @return {Express} this */
+			createClient: function createClient() {
+				AddressHierarchy
+					.setup(Express.app.get('address'))
+					.create(Express.app.get('unique'));
+
+				return this;
+			},
+			/** Force-complete the Unique step's initial open command.
+			 *  @return {Express} this */
+			initJSAddress: function initJSAddress() {
+				Express.app.get('unique').getInstance().commandOpen.dispatchComplete();
+				return this;
+			},
+			/** Register a route. With one argument, acts as a setting getter
+			 *  (calls `set`). With 2-3 arguments, creates a Response handler:
+			 *  `get('/path', handlerFn, parentStep)`. Nested handler objects
+			 *  are recursively registered. Named param patterns (`/:id`) are
+			 *  auto-detected in the Response constructor.
+			 *  @param {string|Object} pattern  Route pattern or settings key
+			 *  @param {Function|Object} [handler]
+			 *  @param {Step} [parent]
+			 *  @return {Express} this */
+			get: function get(pattern, handler, parent) {
+
+				if (arguments.length == 1) { // is a settings order 
+					return this.set(pattern);
+				}
+				var sectionId = handler.sectionId;
+
+				handler.sectionId = undefined;
+				delete handler.sectionId;
+
+				if (handler.constructor !== Function) {
+					if (pattern == 'userData') {
+						parent.userData = handler;
+					} else {
+						for (var s in handler)
+							this.get(s == 'index' ? '/' : s, handler[s], parent);
+					}
+					return this;
+				} else {
+					// nothing here yet...
+				}
+
+				var id = pattern.replace(/(^\/|\/$)/g, ''); // regexp format clean
+
+				var res = new Response(id, pattern);
+				if (!!sectionId) res.sectionId = sectionId;
+
+				var emptyId = id == '';
+				var hasParent = !!parent;
+
+				res.parent = hasParent ? (emptyId ? parent.parentStep : parent) : res.path == '/' ? undefined : Express.app.get('unique').getInstance();
+				res.name = emptyId ? hasParent ? parent.id : Express.app.get('unique').getInstance().id : res.id;
+
+
+				res.handler = handler;
+				res.responseAct = handler;
+
+				this.enableResponse(true, res, parent);
+
+				return this;
+			},
+			/** Get or set a setting value.
+			 *  - `set(key)` — getter
+			 *  - `set(key, val)` — setter (fluent)
+			 *  Special: setting `'loglevel'` updates Logger level.
+			 *  @param {string} setting
+			 *  @param {*} [val]
+			 *  @return {*|Express} Value (getter) or this (setter) */
+			set: function set(setting, val) {
+				if (1 == arguments.length) {
+					if (this.settings.hasOwnProperty(setting)) {
+						return this.settings[setting];
+					} else if (!!this.parent) {
+						return this.parent.set(setting);
+					}
+				} else {
+					this.settings[setting] = val;
+					if (setting === 'loglevel') Logger._setLevel(val);
+					return this;
+				}
+			},
+			/** Enable or disable a response in the step hierarchy.
+			 *  @param {boolean}  cond   True = add, false = remove
+			 *  @param {Response} res
+			 *  @param {Step}     [parent] Parent step */
+			enableResponse: function enableResponse(cond, res, parent) {
+				var handler = res.handler;
+
+				if (cond) {
+
+					parent = parent || AddressHierarchy.hierarchy.currentStep;
+
+
+					if (res.id == '') parent.defaultStep = res;
+					parent.add(res);
+
+					for (var s in handler) {
+						if (s == 'name') continue; // Stoopid IE trying to go for Name value of the function
+						if (s.indexOf('@') == 0) this.attachHandler(true, s, handler[s], res);
+						else if (s == 'index') this.get('', handler[s], res);
+						else this.get(s, handler[s], res);
+					}
+
+				} else {
+					for (var s in handler) {
+						if (s.indexOf('@') == 0) this.attachHandler(false, s, handler[s], res);
+					}
+					var l = res.getLength();
+
+					while (l--) {
+						this.enableResponse(false, res.getChild(l));
+					}
+					res.parentStep.remove(res);
+				}
+			},
+			/** Remove a response from the hierarchy.
+			 *  @param {Response} res
+			 *  @return {boolean} */
+			removeResponse: function removeResponse(res) {
+				return this.enableResponse(false, res);
+			},
+			/** Attach or detach a handler function to a Response's lifecycle events.
+			 *  The `type` prefix `@` is stripped. Maps shorthand names to real events:
+			 *  - `@focus` → focusIn + focusOut
+			 *  - `@toggle` → step_opening + step_closing
+			 *  - `@open` / `@toggleIn` → step_opening
+			 *  - `@close` / `@toggleOut` → step_closing
+			 *  @param {boolean}  cond    True = bind, false = unbind
+			 *  @param {string}   type    Event type (with @ prefix)
+			 *  @param {Function} handler
+			 *  @param {Response} res */
+			attachHandler: function attachHandler(cond, type, handler, res) {
+				type = type.replace('@', '');
+				var bindmethod = cond ? 'bind' : 'unbind';
+				switch (type) {
+					case 'focus':
+						res[bindmethod](type + 'In', handler);
+						res[bindmethod](type + 'Out', handler);
+						break;
+					case 'toggleIn':
+					case 'open':
+						res[bindmethod]('step_opening', handler);
+						break;
+					case 'toggleOut':
+					case 'close':
+						res[bindmethod]('step_closing', handler);
+						break;
+					case 'toggle':
+						res[bindmethod]('step_opening', handler);
+						res[bindmethod]('step_closing', handler);
+						break;
+					case 'focusIn':
+					case 'focusOut':
+					default:
+						res[bindmethod](type, handler);
+						break;
 				}
 			}
-		}) ;
+		});
 
-	}) ;
+	});
 
-})()) ;
+})());
